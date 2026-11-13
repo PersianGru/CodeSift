@@ -1,0 +1,27 @@
+{
+  "about": "Ground truth for scripts/bakeoff.py. Keys are path:line of the medium+ findings the scanners report on corpus/. Never shown to the model.",
+  "cases": {
+    ".github/workflows/triage.yml:13": {"label": "real", "why": "issue title expanded into a run: script"},
+    ".github/workflows/triage.yml:14": {"label": "real", "why": "issue title expanded into a run: script (zizmor)"},
+    "go/users.go:13": {"label": "real", "why": "query param formatted into SQL"},
+    "js/calc.js:6": {"label": "real", "why": "eval of a request parameter"},
+    "js/greet.js:6": {"label": "real", "why": "reflected XSS"},
+    "php/ping.php:3": {"label": "real", "why": "GET param concatenated into system()"},
+    "php/user.php:3": {"label": "real", "why": "GET param concatenated into SQL"},
+    "python/importer.py:10": {"label": "real", "why": "yaml.Loader on uploaded data"},
+    "python/ping.py:11": {"label": "real", "why": "request arg concatenated into a shell command"},
+    "python/session.py:10": {"label": "real", "why": "pickle.loads on the request body"},
+    "python/users.py:12": {"label": "real", "why": "request arg interpolated into SQL"},
+    "js/search.js:7": {"label": "fp", "why": "output is HTML-escaped with escape-html"},
+    "php/order.php:4": {"label": "fp", "why": "id cast to int before SQL"},
+    "php/order.php:6": {"label": "fp", "why": "echoes JSON of a database row, not request input"},
+    "python/health.py:5": {"label": "fp", "why": "shell=True with a constant command"},
+    "python/health.py:9": {"label": "fp", "why": "shell=True with a constant command"},
+    "python/limits.py:5": {"label": "fp", "why": "eval of a module constant"},
+    "python/stats.py:8": {"label": "fp", "why": "table name from a fixed allow-list"},
+    "python/thumbs.py:7": {"label": "fp", "why": "user path passed through shlex.quote"}
+  },
+  "excluded": {
+    "go.lang.security.audit.net.use-tls": "plain HTTP listener: depends on deployment (TLS proxy), no single right answer"
+  }
+}

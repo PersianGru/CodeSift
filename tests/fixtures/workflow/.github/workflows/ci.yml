@@ -1,0 +1,19 @@
+# Deliberately insecure workflow for CodeSift tests. It lives under tests/fixtures and never runs.
+name: ci
+on:
+  pull_request_target:
+  issues:
+    types: [opened]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # REAL: checks out untrusted PR code in a privileged pull_request_target workflow
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      # REAL: template injection of an attacker-controlled issue title
+      - run: |
+          echo "New issue - ${{ github.event.issue.title }}"
+      - run: npm ci && npm test

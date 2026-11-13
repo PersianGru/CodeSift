@@ -1,0 +1,1309 @@
+{
+  "date": "2026-11-12",
+  "models": {
+    "primary": "ollama/qwen3.8:27b-mtp-q4_K_M",
+    "fallback": "ollama/qwen3-coder:30b"
+  },
+  "configs": {
+    "primary:think": {
+      "model": "ollama/qwen3.8:27b-mtp-q4_K_M",
+      "think": true,
+      "summary": {
+        "cases": 19,
+        "accuracy": 1.0,
+        "real_recall": 1.0,
+        "fp_detected": 1.0,
+        "real_called_fp": 0,
+        "unsure": 0,
+        "failed": 0,
+        "invalid_json_first_try": 0,
+        "hallucinated_first_try": 0,
+        "schema_first_try": 0,
+        "median_s": 13.7,
+        "p95_s": 29.9
+      },
+      "rows": [
+        {
+          "case": ".github/workflows/triage.yml:13",
+          "label": "real",
+          "rule": "opengrep:yaml.github-actions.security.run-shell-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 21.6,
+              "tokens": 544
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The issue title is attacker-controlled and is interpolated directly into a shell command via ${{ }} before the shell executes it, allowing arbitrary command injection (e.g., a title containing $(curl ",
+          "correct": true
+        },
+        {
+          "case": ".github/workflows/triage.yml:14",
+          "label": "real",
+          "rule": "zizmor:template-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 23.0,
+              "tokens": 614
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The attacker-controllable issue title is expanded directly into a shell command via ${{ }} before the shell executes it, so a title containing $(cmd) or backticks would result in arbitrary command exe",
+          "correct": true
+        },
+        {
+          "case": "go/users.go:13",
+          "label": "real",
+          "rule": "opengrep:go.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 10.7,
+              "tokens": 304
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "User-controlled input from r.URL.Query().Get(\"name\") is directly interpolated into a SQL string via fmt.Sprintf with no parameterization or sanitization, enabling classic SQL injection. The fix is to ",
+          "correct": true
+        },
+        {
+          "case": "js/calc.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.lang.security.audit.code-string-concat",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.5,
+              "tokens": 363
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "User-controlled query parameter `req.query.expr` is passed directly to `eval()` with no sanitisation, enabling arbitrary code execution in the Node.js process (RCE). This is a textbook CWE-94/CWE-95 v",
+          "correct": true
+        },
+        {
+          "case": "python/health.py:5",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.8,
+              "tokens": 379
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The command string 'uptime -p' is fully hardcoded with no user-supplied input, so there is no command-injection vector despite shell=True. This is a best-practice style warning, not an exploitable vul",
+          "correct": true
+        },
+        {
+          "case": "python/health.py:9",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.7,
+              "tokens": 391
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The command string \"df -h /\" is fully hardcoded with no user-supplied input, so there is no shell injection risk despite shell=True. This is a best-practice/style warning, not an exploitable vulnerabi",
+          "correct": true
+        },
+        {
+          "case": "python/ping.py:11",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.subprocess-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 12.4,
+              "tokens": 359
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "User-controlled input from request.args is concatenated directly into a shell command with shell=True, allowing arbitrary command execution via shell metacharacters (e.g., host='; rm -rf /').",
+          "correct": true
+        },
+        {
+          "case": "python/thumbs.py:7",
+          "label": "fp",
+          "rule": "bandit:B602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 29.9,
+              "tokens": 807
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The only dynamic input (path) is properly shell-escaped with shlex.quote(), preventing shell injection; the rest of the command is a static string. Best practice would still be to use a list argument ",
+          "correct": true
+        },
+        {
+          "case": "php/order.php:4",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 27.0,
+              "tokens": 763
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The input $_GET['id'] is cast to (int) on line 3, which guarantees $id is always a valid integer, making SQL injection through this parameter impossible. While prepared statements are best practice, t",
+          "correct": true
+        },
+        {
+          "case": "php/order.php:6",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.echoed-request",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 37.3,
+              "tokens": 953
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The echoed data comes from the database (not directly from the request), and the only request parameter ($_GET['id']) is cast to int, making it impossible to carry an XSS payload. json_encode also esc",
+          "correct": true
+        },
+        {
+          "case": "php/ping.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.tainted-exec",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 8.3,
+              "tokens": 221
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "User-controlled input from $_GET['host'] is concatenated directly into a shell command passed to system() with no sanitization or escaping, enabling arbitrary command execution.",
+          "correct": true
+        },
+        {
+          "case": "php/user.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 11.8,
+              "tokens": 347
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The user-supplied $_GET['email'] value is concatenated directly into a SQL string with no parameterization, escaping, or prepared statement, making it a textbook SQL injection (CWE-89).",
+          "correct": true
+        },
+        {
+          "case": "python/users.py:12",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 10.1,
+              "tokens": 284
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "User-controlled input from request.args.get is directly interpolated into a SQL query via f-string, enabling SQL injection. The fix is to use a parameterized query with a placeholder.",
+          "correct": true
+        },
+        {
+          "case": "python/importer.py:10",
+          "label": "real",
+          "rule": "bandit:B506",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.4,
+              "tokens": 369
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "yaml.load with Loader=yaml.Loader on untrusted HTTP request body allows arbitrary Python object instantiation (RCE). The input is directly from request.get_data() with no sanitisation.",
+          "correct": true
+        },
+        {
+          "case": "python/limits.py:5",
+          "label": "fp",
+          "rule": "bandit:B307",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 25.1,
+              "tokens": 684
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The argument to eval() is a hardcoded string constant defined in the same file, with no user-controlled or externally-sourced input visible in the excerpt. There is no exploitable attack vector, thoug",
+          "correct": true
+        },
+        {
+          "case": "python/session.py:10",
+          "label": "real",
+          "rule": "bandit:B301",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 14.9,
+              "tokens": 366
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "pickle.loads() is called directly on raw HTTP request body data (request.get_data()), which is untrusted input; a crafted pickle payload can achieve arbitrary code execution via __reduce__. There is n",
+          "correct": true
+        },
+        {
+          "case": "js/greet.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 10.5,
+              "tokens": 284
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "medium",
+          "reason": "req.query.name is directly concatenated into an HTML string and sent via res.send() with no encoding or sanitization, allowing reflected XSS (e.g. /greet?name=<script>alert(1)</script>).",
+          "correct": true
+        },
+        {
+          "case": "js/search.js:7",
+          "label": "fp",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 11.3,
+              "tokens": 307
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "info",
+          "reason": "The user input req.query.q is already passed through escapeHtml() before being concatenated into the HTML string, which properly escapes <, >, &, \", and ' characters, preventing XSS injection.",
+          "correct": true
+        },
+        {
+          "case": "python/stats.py:8",
+          "label": "fp",
+          "rule": "bandit:B608",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 17.0,
+              "tokens": 441
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "info",
+          "reason": "The interpolated value `table` is always one of three hardcoded strings from the ALLOWED_TABLES dictionary, so no attacker-controlled data reaches the SQL string. This is a legitimate use of f-string ",
+          "correct": true
+        }
+      ]
+    },
+    "primary:nothink": {
+      "model": "ollama/qwen3.8:27b-mtp-q4_K_M",
+      "think": false,
+      "summary": {
+        "cases": 19,
+        "accuracy": 0.947,
+        "real_recall": 1.0,
+        "fp_detected": 0.875,
+        "real_called_fp": 0,
+        "unsure": 0,
+        "failed": 0,
+        "invalid_json_first_try": 0,
+        "hallucinated_first_try": 0,
+        "schema_first_try": 0,
+        "median_s": 14.4,
+        "p95_s": 30.4
+      },
+      "rows": [
+        {
+          "case": ".github/workflows/triage.yml:13",
+          "label": "real",
+          "rule": "opengrep:yaml.github-actions.security.run-shell-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 19.8,
+              "tokens": 558
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The issue title is attacker-controlled user input interpolated directly into a shell `run:` step, allowing arbitrary command execution (e.g., via `$(...)` or backticks) that can exfiltrate secrets. Th",
+          "correct": true
+        },
+        {
+          "case": ".github/workflows/triage.yml:14",
+          "label": "real",
+          "rule": "zizmor:template-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 46.9,
+              "tokens": 1209
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The attacker-controllable issue title is expanded directly into a shell command via template expression, allowing command substitution injection (e.g., a title of `$(curl evil.com)` becomes executable",
+          "correct": true
+        },
+        {
+          "case": "go/users.go:13",
+          "label": "real",
+          "rule": "opengrep:go.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 7.2,
+              "tokens": 218
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "User-supplied query parameter 'name' is directly interpolated into a SQL string via fmt.Sprintf with no sanitization or parameterization, enabling classic SQL injection. The fix is to use a parameteri",
+          "correct": true
+        },
+        {
+          "case": "js/calc.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.lang.security.audit.code-string-concat",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.7,
+              "tokens": 351
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "User-controlled query parameter req.query.expr is passed directly to eval() with no sanitisation, allowing arbitrary JavaScript execution in the server process. This is a textbook CWE-95 eval injectio",
+          "correct": true
+        },
+        {
+          "case": "python/health.py:5",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 14.6,
+              "tokens": 406
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The command string 'uptime -p' is a hardcoded literal with no user-controlled input, so shell=True does not create an exploitable injection vector here. This is a best-practice style warning, not an a",
+          "correct": true
+        },
+        {
+          "case": "python/health.py:9",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 14.4,
+              "tokens": 391
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The command string \"df -h /\" is fully hardcoded with no user-supplied input, so there is no shell injection risk. Using shell=True here is a style/best-practice concern, not a vulnerability.",
+          "correct": true
+        },
+        {
+          "case": "python/ping.py:11",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.subprocess-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.0,
+              "tokens": 381
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "User-controlled input from request.args.get('host') is concatenated directly into a shell command with shell=True, allowing arbitrary command injection (e.g., host='; rm -rf /').",
+          "correct": true
+        },
+        {
+          "case": "python/thumbs.py:7",
+          "label": "fp",
+          "rule": "bandit:B602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 26.2,
+              "tokens": 732
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The user-controlled input `path` is properly sanitized with `shlex.quote()`, which prevents shell injection; the remaining command components are hardcoded strings. While `shell=True` is a discouraged",
+          "correct": true
+        },
+        {
+          "case": "php/order.php:4",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 19.6,
+              "tokens": 560
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The input is cast to (int) on line 3, guaranteeing $id is a pure integer before concatenation, which makes SQL injection impossible. While a prepared statement would be better practice, the (int) cast",
+          "correct": true
+        },
+        {
+          "case": "php/order.php:6",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.echoed-request",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 30.4,
+              "tokens": 852
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "info",
+          "reason": "The echoed data is a database record encoded as JSON, not the raw request parameter; the user input is cast to int and the output is a JSON API response, not HTML rendering.",
+          "correct": true
+        },
+        {
+          "case": "php/ping.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.tainted-exec",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 7.7,
+              "tokens": 219
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "User-controlled input from $_GET['host'] is concatenated directly into a shell command passed to system() with no sanitisation or escaping, enabling arbitrary command injection.",
+          "correct": true
+        },
+        {
+          "case": "php/user.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 10.3,
+              "tokens": 303
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The user-supplied $_GET['email'] value is directly concatenated into a SQL query string with no parameterization or escaping, allowing an attacker to inject arbitrary SQL. This is a textbook SQL injec",
+          "correct": true
+        },
+        {
+          "case": "python/users.py:12",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 9.9,
+              "tokens": 265
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "User-controlled input from request.args.get('name') is directly interpolated into a SQL query via f-string with no parameterization or sanitization, enabling classic SQL injection.",
+          "correct": true
+        },
+        {
+          "case": "python/importer.py:10",
+          "label": "real",
+          "rule": "bandit:B506",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 16.6,
+              "tokens": 453
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "yaml.load with Loader=yaml.Loader on raw user-supplied HTTP body data allows arbitrary Python object instantiation (e.g. !!python/object/apply:os.system), enabling remote code execution. The input is ",
+          "correct": true
+        },
+        {
+          "case": "python/limits.py:5",
+          "label": "fp",
+          "rule": "bandit:B307",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 22.9,
+              "tokens": 610
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "low",
+          "reason": "The code does use eval() on a string, which is the flagged pattern, but the input is a hardcoded constant with no user-controlled data, so there is no practical attack vector. It is still a code-quali",
+          "correct": false
+        },
+        {
+          "case": "python/session.py:10",
+          "label": "real",
+          "rule": "bandit:B301",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 13.9,
+              "tokens": 346
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "Raw HTTP request body is passed directly to pickle.loads(), allowing an attacker to send a crafted pickle payload that executes arbitrary code (RCE). This is a textbook CWE-502 insecure deserializatio",
+          "correct": true
+        },
+        {
+          "case": "js/greet.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 11.7,
+              "tokens": 299
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "medium",
+          "reason": "req.query.name is user-controlled input concatenated directly into an HTML string with no encoding or sanitization, enabling reflected XSS via a crafted query parameter.",
+          "correct": true
+        },
+        {
+          "case": "js/search.js:7",
+          "label": "fp",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 10.5,
+              "tokens": 265
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "info",
+          "reason": "The user input req.query.q is already passed through escapeHtml() before being concatenated into the HTML string, which properly encodes <, >, &, \", and ' characters, preventing XSS.",
+          "correct": true
+        },
+        {
+          "case": "python/stats.py:8",
+          "label": "fp",
+          "rule": "bandit:B608",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 17.0,
+              "tokens": 439
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "info",
+          "reason": "The interpolated value `table` is always one of three hardcoded strings from the ALLOWED_TABLES dictionary, so no user-controlled data reaches the SQL query. The f-string pattern is flagged but the wh",
+          "correct": true
+        }
+      ]
+    },
+    "fallback:think": {
+      "model": "ollama/qwen3-coder:30b",
+      "think": true,
+      "summary": {
+        "cases": 19,
+        "accuracy": 0.632,
+        "real_recall": 0.818,
+        "fp_detected": 0.375,
+        "real_called_fp": 2,
+        "unsure": 0,
+        "failed": 0,
+        "invalid_json_first_try": 0,
+        "hallucinated_first_try": 0,
+        "schema_first_try": 0,
+        "median_s": 2.2,
+        "p95_s": 3.0
+      },
+      "rows": [
+        {
+          "case": ".github/workflows/triage.yml:13",
+          "label": "real",
+          "rule": "opengrep:yaml.github-actions.security.run-shell-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 3.5,
+              "tokens": 107
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code uses GitHub context data `${{ github.event.issue.title }}` in a simple echo command, which is not directly executable code. The injection risk is minimal as the output is only printed to cons",
+          "correct": false
+        },
+        {
+          "case": ".github/workflows/triage.yml:14",
+          "label": "real",
+          "rule": "zizmor:template-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.8,
+              "tokens": 93
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code uses GitHub Actions context variables within a template string, which is standard practice and not vulnerable to code injection. The input comes from the GitHub event and is not directly user",
+          "correct": false
+        },
+        {
+          "case": "go/users.go:13",
+          "label": "real",
+          "rule": "opengrep:go.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.6,
+              "tokens": 124
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly interpolates user input from HTTP query parameters into a SQL query string using fmt.Sprintf, creating a classic SQL injection vulnerability. The fix is to use parameterized queries.",
+          "correct": true
+        },
+        {
+          "case": "js/calc.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.lang.security.audit.code-string-concat",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.1,
+              "tokens": 104
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly uses `eval()` on user-controllable data from `req.query.expr`, creating a critical remote code execution vulnerability. This allows attackers to execute arbitrary JavaScript code.",
+          "correct": true
+        },
+        {
+          "case": "python/health.py:5",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.5,
+              "tokens": 137
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `subprocess.check_output` with `shell=True` and a hardcoded string argument, which creates a potential shell injection vulnerability. Even though the command is hardcoded, using `shell=T",
+          "correct": false
+        },
+        {
+          "case": "python/health.py:9",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.2,
+              "tokens": 122
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `subprocess.check_output` with `shell=True`, which can lead to command injection vulnerabilities. The input is not sanitized and directly passed to the shell.",
+          "correct": false
+        },
+        {
+          "case": "python/ping.py:11",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.subprocess-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.6,
+              "tokens": 142
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly concatenates user input from `request.args.get()` into a shell command without any sanitization or escaping, creating a command injection vulnerability. The `shell=True` parameter ex",
+          "correct": true
+        },
+        {
+          "case": "python/thumbs.py:7",
+          "label": "fp",
+          "rule": "bandit:B602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.5,
+              "tokens": 131
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses subprocess.run() with shell=True, which can lead to command injection vulnerabilities. Although shlex.quote is used for the path argument, the overall command construction is still risky",
+          "correct": false
+        },
+        {
+          "case": "php/order.php:4",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 3.0,
+              "tokens": 162
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code concatenates user input directly into a SQL query string without any sanitization or prepared statements, which is a classic SQL injection vulnerability. Although the $id variable is cast to ",
+          "correct": false
+        },
+        {
+          "case": "php/order.php:6",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.echoed-request",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.8,
+              "tokens": 85
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code is echoing a JSON-encoded database result, not raw user input that would be directly injected into HTML. The vulnerability alert is misapplied since json_encode() properly escapes data for JS",
+          "correct": true
+        },
+        {
+          "case": "php/ping.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.tainted-exec",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.1,
+              "tokens": 110
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly concatenates user input from $_GET['host'] into a shell command without any sanitization, creating a command injection vulnerability. The use of 'system()' with unescaped user input ",
+          "correct": true
+        },
+        {
+          "case": "php/user.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.6,
+              "tokens": 147
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly concatenates user input from $_GET['email'] into a SQL query string, creating a clear SQL injection vulnerability. The fix requires using prepared statements to separate SQL logic fr",
+          "correct": true
+        },
+        {
+          "case": "python/users.py:12",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.5,
+              "tokens": 140
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly interpolates user input from `request.args.get('name', '')` into a SQL query string using an f-string, creating a clear SQL injection vulnerability. The fix is to use parameterized q",
+          "correct": true
+        },
+        {
+          "case": "python/importer.py:10",
+          "label": "real",
+          "rule": "bandit:B506",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.2,
+              "tokens": 115
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `yaml.load()` with `yaml.Loader` which can execute arbitrary Python objects during deserialization, leading to potential remote code execution. This is a known vulnerability (CWE-502).",
+          "correct": true
+        },
+        {
+          "case": "python/limits.py:5",
+          "label": "fp",
+          "rule": "bandit:B307",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.3,
+              "tokens": 124
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `eval()` on a string that appears to be user-controllable or externally loaded, which can lead to code injection vulnerabilities. The `eval()` function executes arbitrary Python code, ma",
+          "correct": false
+        },
+        {
+          "case": "python/session.py:10",
+          "label": "real",
+          "rule": "bandit:B301",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.2,
+              "tokens": 118
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `pickle.loads()` to deserialize data from HTTP request, which is vulnerable to arbitrary code execution if the input is malicious. This directly matches CWE-502 (Deserialization of Untru",
+          "correct": true
+        },
+        {
+          "case": "js/greet.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.2,
+              "tokens": 119
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code directly concatenates user-provided input from `req.query.name` into HTML without any sanitization, creating a clear XSS vulnerability. The input flows directly into the response body.",
+          "correct": true
+        },
+        {
+          "case": "js/search.js:7",
+          "label": "fp",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.8,
+              "tokens": 93
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code uses the escape-html library to sanitize user input before inserting it into HTML, which prevents XSS vulnerabilities. The flagged line properly escapes the query parameter.",
+          "correct": true
+        },
+        {
+          "case": "python/stats.py:8",
+          "label": "fp",
+          "rule": "bandit:B608",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.9,
+              "tokens": 99
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The table name is validated against a whitelist dictionary, preventing arbitrary SQL injection. The query construction uses a controlled variable that cannot be manipulated by external input.",
+          "correct": true
+        }
+      ]
+    },
+    "fallback:nothink": {
+      "model": "ollama/qwen3-coder:30b",
+      "think": false,
+      "summary": {
+        "cases": 19,
+        "accuracy": 0.684,
+        "real_recall": 0.818,
+        "fp_detected": 0.5,
+        "real_called_fp": 2,
+        "unsure": 0,
+        "failed": 0,
+        "invalid_json_first_try": 0,
+        "hallucinated_first_try": 0,
+        "schema_first_try": 0,
+        "median_s": 2.3,
+        "p95_s": 2.7
+      },
+      "rows": [
+        {
+          "case": ".github/workflows/triage.yml:13",
+          "label": "real",
+          "rule": "opengrep:yaml.github-actions.security.run-shell-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.9,
+              "tokens": 99
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code only echoes the issue title from the GitHub context, which is a read-only operation and does not execute any shell commands or allow code injection. The use of `${{ github.event.issue.title }",
+          "correct": false
+        },
+        {
+          "case": ".github/workflows/triage.yml:14",
+          "label": "real",
+          "rule": "zizmor:template-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.9,
+              "tokens": 98
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code uses GitHub Actions context variables within a template string, which is standard practice and not vulnerable to code injection. The input comes from the GitHub event and is not directly user",
+          "correct": false
+        },
+        {
+          "case": "go/users.go:13",
+          "label": "real",
+          "rule": "opengrep:go.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.4,
+              "tokens": 127
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly interpolates user input from HTTP query parameters into a SQL query string using fmt.Sprintf, creating a clear SQL injection vulnerability. The fix requires using parameterized queri",
+          "correct": true
+        },
+        {
+          "case": "js/calc.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.lang.security.audit.code-string-concat",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.0,
+              "tokens": 104
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly uses `eval()` on user-provided data from `req.query.expr`, creating a critical remote code execution vulnerability. This allows attackers to execute arbitrary JavaScript code.",
+          "correct": true
+        },
+        {
+          "case": "python/health.py:5",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.6,
+              "tokens": 138
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `subprocess.check_output` with `shell=True` and a hardcoded string argument, which creates a potential shell injection vulnerability. Even though the command is hardcoded, using `shell=T",
+          "correct": false
+        },
+        {
+          "case": "python/health.py:9",
+          "label": "fp",
+          "rule": "ruff:S602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.5,
+              "tokens": 136
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `subprocess.check_output` with `shell=True`, which can lead to command injection vulnerabilities if the input is not properly sanitized. The hardcoded strings appear safe, but the use of",
+          "correct": false
+        },
+        {
+          "case": "python/ping.py:11",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.subprocess-injection",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.6,
+              "tokens": 142
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly concatenates user input from `request.args.get()` into a shell command without any sanitization or escaping, creating a command injection vulnerability. The `shell=True` parameter ex",
+          "correct": true
+        },
+        {
+          "case": "python/thumbs.py:7",
+          "label": "fp",
+          "rule": "bandit:B602",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.4,
+              "tokens": 129
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses subprocess.run() with shell=True, which is vulnerable to command injection. Although shlex.quote is used for the path argument, the entire command string is still passed to the shell, cr",
+          "correct": false
+        },
+        {
+          "case": "php/order.php:4",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.1,
+              "tokens": 114
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The $id variable is explicitly cast to integer using (int) before being used in the SQL query, which prevents SQL injection. The sanitization makes the code safe despite the scanner's alert.",
+          "correct": true
+        },
+        {
+          "case": "php/order.php:6",
+          "label": "fp",
+          "rule": "opengrep:php.lang.security.injection.echoed-request",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.7,
+              "tokens": 77
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code echoes JSON-encoded data, not raw user input directly, which mitigates XSS risk. The vulnerability is in the data source, not the echo statement.",
+          "correct": true
+        },
+        {
+          "case": "php/ping.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.tainted-exec",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.1,
+              "tokens": 110
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly concatenates user input from $_GET['host'] into a shell command without any sanitization, creating a command injection vulnerability. The use of 'system()' with unescaped user input ",
+          "correct": true
+        },
+        {
+          "case": "php/user.php:3",
+          "label": "real",
+          "rule": "opengrep:php.lang.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.7,
+              "tokens": 151
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly concatenates user input from $_GET['email'] into a SQL query string, creating a clear SQL injection vulnerability. The input is not sanitized or escaped before being used in the quer",
+          "correct": true
+        },
+        {
+          "case": "python/users.py:12",
+          "label": "real",
+          "rule": "opengrep:python.flask.security.injection.tainted-sql-string",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.7,
+              "tokens": 149
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "critical",
+          "reason": "The code directly interpolates user input from `request.args.get('name', '')` into a SQL query string without any sanitization or parameterization, creating a clear SQL injection vulnerability. The us",
+          "correct": true
+        },
+        {
+          "case": "python/importer.py:10",
+          "label": "real",
+          "rule": "bandit:B506",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.3,
+              "tokens": 124
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `yaml.load()` with `yaml.Loader`, which can execute arbitrary Python objects during deserialization, leading to potential remote code execution. Using `yaml.safe_load()` would mitigate t",
+          "correct": true
+        },
+        {
+          "case": "python/limits.py:5",
+          "label": "fp",
+          "rule": "bandit:B307",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.3,
+              "tokens": 125
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `eval()` on a string that appears to be user-controllable or externally loaded, which can lead to code injection vulnerabilities. Even though the example shows a hardcoded string, the us",
+          "correct": false
+        },
+        {
+          "case": "python/session.py:10",
+          "label": "real",
+          "rule": "bandit:B301",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.2,
+              "tokens": 119
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code uses `pickle.loads()` to deserialize data from an HTTP request, which is vulnerable to arbitrary code execution if the data is malicious. This directly matches CWE-502 (Deserialization of Unt",
+          "correct": true
+        },
+        {
+          "case": "js/greet.js:6",
+          "label": "real",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 2.3,
+              "tokens": 119
+            }
+          ],
+          "verdict": "likely_real",
+          "severity_suggestion": "high",
+          "reason": "The code directly concatenates user-provided input from `req.query.name` into HTML without any sanitization, creating a clear XSS vulnerability. The input flows directly into the response body.",
+          "correct": true
+        },
+        {
+          "case": "js/search.js:7",
+          "label": "fp",
+          "rule": "opengrep:javascript.express.security.injection.raw-html-format",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.8,
+              "tokens": 94
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The code uses the `escapeHtml` function to sanitize user input before inserting it into HTML, which prevents XSS vulnerabilities. The flagged line correctly applies HTML escaping.",
+          "correct": true
+        },
+        {
+          "case": "python/stats.py:8",
+          "label": "fp",
+          "rule": "bandit:B608",
+          "attempts": [
+            {
+              "ok": true,
+              "s": 1.9,
+              "tokens": 99
+            }
+          ],
+          "verdict": "likely_false_positive",
+          "severity_suggestion": "low",
+          "reason": "The table name is validated against a whitelist dictionary, preventing arbitrary SQL injection. The query construction uses a controlled variable that cannot be manipulated by external input.",
+          "correct": true
+        }
+      ]
+    }
+  },
+  "warmup_s": {
+    "ollama/qwen3.8:27b-mtp-q4_K_M": 1.6,
+    "ollama/qwen3-coder:30b": 19.5
+  }
+}

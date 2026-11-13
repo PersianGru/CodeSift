@@ -1,0 +1,15 @@
+# Deliberately insecure sample for CodeSift tests.
+services:
+  app:
+    image: example/app:latest
+    # REAL: privileged container
+    privileged: true
+    # REAL: docker socket mounted into the container
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # REAL: host network
+    network_mode: host
+  db:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password

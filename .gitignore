@@ -1,0 +1,32 @@
+# Local dev credentials and notes - never commit
+.local/
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# CodeSift outputs (they belong in the user cache dir, never in a repo)
+codesift-runs/
+raw/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# rollback copies written by `sift update --apply --lock` in a checkout
+tools.lock.prev.json
+requirements.lock.prev

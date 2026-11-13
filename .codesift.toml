@@ -1,0 +1,18 @@
+# CodeSift's own project config (CodeSift scans itself as its last test).
+
+[scan]
+# Deliberately vulnerable fixtures and the vendored third-party rule files.
+exclude = [
+  "tests/fixtures/**",
+  "tests/bakeoff/**",
+  "rules/opengrep-rules/**",
+]
+threshold = "medium"
+
+[review]
+critical_paths = [
+  "src/codesift/redact.py",
+  "src/codesift/net.py",
+  "src/codesift/tools.py",
+  "src/codesift/config.py",
+]
