@@ -10,6 +10,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 from codesift.config import (
     LLM_KEY,
@@ -123,7 +124,62 @@ def run_checks(paths: Paths, env: Mapping[str, str] | None = None, llm: bool = F
     checks.extend(_tool_checks(paths))
     if llm:
         checks.extend(_llm_checks(paths, env, allow_http))
+    checks.extend(vm_checks(paths))
+    fixer_checks = globals().get("fixers_checks")
+    if callable(fixer_checks):
+        checks.extend(fixer_checks(paths, env))
     return checks
+
+
+def vm_checks(paths: Paths) -> list[Check]:
+    """Sandbox VM: config, key permissions, pinned host key, last self-test. No live contact here
+    (that is `sift vm doctor`)."""
+    from codesift.secrets_store import owner_only
+    from codesift.vm import SandboxError
+    from codesift.vm.config import load_vm_config
+    from codesift.vm.keys import pinned_fingerprints
+    from codesift.vm.selftest import last_result
+
+    if not paths.vm_file.exists():
+        return [
+            Check(
+                "sandbox VM",
+                TODO,
+                "not configured (needed for sift validate/fix)",
+                fix="run `sift setup --vm`",
+            )
+        ]
+    try:
+        cfg = load_vm_config(paths)
+    except SandboxError as exc:
+        return [Check("sandbox VM", FAIL, str(exc), fix=exc.fix or "run `sift setup --vm`")]
+    out = [Check("sandbox VM", OK, f"{cfg.user}@{cfg.host}:{cfg.port}, {cfg.runtime}, image {cfg.image}")]
+    key = Path(cfg.key_path)
+    if not key.is_file():
+        out.append(Check("sandbox key", FAIL, "key file missing", fix="run `sift setup --vm`"))
+    elif owner_only(key) is False:
+        out.append(Check("sandbox key", FAIL, "readable by other users", fix=f"chmod 600 {key}"))
+    else:
+        out.append(
+            Check("sandbox key", OK, "dedicated key" if not cfg.key_user_supplied else "your key file")
+        )
+    pinned = pinned_fingerprints(Path(cfg.known_hosts_path))
+    if cfg.host_key_fingerprint and cfg.host_key_fingerprint in pinned:
+        out.append(Check("VM host key", OK, f"pinned {cfg.host_key_fingerprint}"))
+    else:
+        out.append(Check("VM host key", FAIL, "not pinned", fix="run `sift setup --vm`"))
+    if not cfg.image_id:
+        out.append(Check("sandbox image", WARN, "not pinned", fix=f"run `sift vm image pull {cfg.image}`"))
+    else:
+        out.append(Check("sandbox image", OK, f"pinned {cfg.image_id[:19]}…"))
+    last = last_result(paths.data)
+    if last is None:
+        out.append(Check("VM self-test", TODO, "never run", fix="run `sift vm doctor`"))
+    elif last.get("passed"):
+        out.append(Check("VM self-test", OK, "last run passed"))
+    else:
+        out.append(Check("VM self-test", FAIL, "last run FAILED", fix="run `sift vm doctor` for details"))
+    return out
 
 
 def _llm_checks(paths: Paths, env: Mapping[str, str], allow_http: bool) -> list[Check]:
@@ -253,7 +309,7 @@ def format_checks(checks: list[Check]) -> str:
     lines = []
     for c in checks:
         lines.append(f"[{c.status:>4}] {c.name:<{width}}  {c.detail}")
-        if c.fix and c.status in (WARN, FAIL):
+        if c.fix and c.status in (WARN, FAIL, TODO):
             lines.append(f"       {'':<{width}}  fix: {c.fix}")
     return "\n".join(lines)
 

@@ -22,7 +22,7 @@ sift = "codesift.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-codesift = ["py.typed"]
+codesift = ["py.typed", "vm/codesift-gate.sh"]
 
 [tool.black]
 line-length = 110
@@ -52,3 +52,4 @@ exclude = ["tests/fixtures/", "tests/bakeoff/"]
 testpaths = ["tests"]
 addopts = "-q"
 norecursedirs = ["fixtures"]
+markers = ["live_vm: contacts the real sandbox VM (only with CODESIFT_LIVE_VM=1)"]

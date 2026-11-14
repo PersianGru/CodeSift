@@ -13,6 +13,7 @@ import time
 import urllib.error
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from codesift.config import (
@@ -32,6 +33,11 @@ from codesift.gateway import ClientSettings, GatewayClient, LLMError
 from codesift.paths import Paths
 from codesift.redact import Redactor
 from codesift.secrets_store import StoreError, describe, migrate_legacy_gateway, save_gateway
+from codesift.vm import SandboxError
+from codesift.vm import keys as vm_keys
+from codesift.vm.admin import authorized_keys_line
+from codesift.vm.config import DEFAULT_IMAGE, VMConfig, load_vm_config, save_vm_config
+from codesift.vm.sshargs import ArgError, validate_host, validate_key_path, validate_port, validate_user
 
 KEEP_HINT = "Enter keeps it"
 
@@ -445,9 +451,200 @@ def run_setup(
         for line in SAFETY_STATEMENT.splitlines():
             io.say(line)
         return 0
-    except (SetupError, ConfigError, StoreError) as exc:
+    except (SetupError, ConfigError, StoreError, SandboxError) as exc:
         io.say(f"sift setup: {exc}")
         return 2
     except KeyboardInterrupt:
         io.say("\nsift setup: cancelled")
         return 2
+
+
+# ---------------------------------------------------------------- step 2: sandbox VM
+
+VM_INTRO = (
+    "Step 2 - Sandbox VM",
+    "Project tests, proofs of concept and patched code run ONLY on a separate Linux VM, inside",
+    "disposable containers with no network. Nothing untrusted ever runs on this machine.",
+    "Use a lab VM with Docker or Podman - not a production server.",
+)
+
+
+def _current_vm(paths: Paths) -> VMConfig | None:
+    try:
+        return load_vm_config(paths)
+    except SandboxError:
+        return None
+
+
+def _ask_valid(io: WizardIO, question: str, default: str | None, check: Callable[[str], object]) -> str:
+    while True:
+        answer = io.ask(question, default)
+        try:
+            check(answer)
+            return answer
+        except (ArgError, ValueError) as exc:
+            io.say(f"  {exc}")
+
+
+def _ask_int(io: WizardIO, question: str, default: int, low: int, high: int) -> int:
+    while True:
+        answer = io.ask(question, str(default))
+        if answer.isdigit() and low <= int(answer) <= high:
+            return int(answer)
+        io.say(f"  enter a whole number between {low} and {high}")
+
+
+def _pin(io: WizardIO, paths: Paths, host: str, port: int) -> str:
+    io.say(f"Fetching the VM's SSH host key from {host}:{port} ...")
+    found = vm_keys.scan_host_keys(host, port)
+    for key in found:
+        io.say(f"  {key.key_type}  {key.fingerprint}")
+    io.say("Compare it with the fingerprint on the VM (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub).")
+    if not io.exactly_yes("Pin this host key? Connections will refuse any other key"):
+        raise SetupError("host key not pinned - nothing saved for the VM")
+    preferred = [k for k in found if k.key_type == "ssh-ed25519"] or found
+    note = vm_keys.pin_host_key(paths.vm_known_hosts, host, port, preferred)
+    io.say(f"  pinned in {paths.vm_known_hosts} ({note})")
+    return preferred[0].fingerprint
+
+
+def step_vm(io: WizardIO, paths: Paths, env: Mapping[str, str]) -> StepResult:
+    io.say("")
+    for line in VM_INTRO:
+        io.say(line)
+    cur = _current_vm(paths) or VMConfig()
+    host = _ask_valid(io, "VM host name or IP address", cur.host or None, validate_host)
+    port = int(_ask_valid(io, "SSH port", str(cur.port), validate_port))
+    io.say("Use a dedicated unprivileged user on the VM (not an admin; `sift vm admin-script` creates one).")
+    user = _ask_valid(io, "VM user name", cur.user or "codesift", validate_user)
+    runtime = io.ask("Container runtime (docker or podman)", cur.runtime)
+    while runtime not in ("docker", "podman"):
+        runtime = io.ask("Container runtime - type docker or podman", "docker")
+    image = io.ask("Sandbox image (needs sh, tar, timeout; add your test tools)", cur.image or DEFAULT_IMAGE)
+    cfg = VMConfig(host=host, port=port, user=user, runtime=runtime, image=image)
+    if image == cur.image:
+        cfg.image_id = cur.image_id
+    if io.yes("Use the safe default limits (512 MB memory, 1 CPU, 128 processes, 300 s per job)?", True):
+        cfg.memory_mb, cfg.cpus, cfg.pids, cfg.job_timeout_s = 512, 1.0, 128, 300
+    else:
+        cfg.memory_mb = _ask_int(io, "Memory per job (MB)", cur.memory_mb, 64, 65536)
+        cfg.cpus = float(_ask_int(io, "CPUs per job", max(1, int(cur.cpus)), 1, 64))
+        cfg.pids = _ask_int(io, "Max processes per job", cur.pids, 16, 4096)
+        cfg.job_timeout_s = _ask_int(io, "Max seconds per job", cur.job_timeout_s, 5, 3600)
+    cfg.min_free_mem_mb = max(cfg.memory_mb + 256, 512)
+
+    # Authentication: a dedicated key (recommended) or an existing key path. No passwords, ever.
+    pubkey = ""
+    existing = Path(cur.key_path) if cur.key_path else None
+    if existing and existing.is_file() and io.yes(f"Keep the current SSH key ({existing.name})?", True):
+        cfg.key_path, cfg.key_user_supplied = str(existing), cur.key_user_supplied
+        if not cur.key_user_supplied:
+            pubkey = vm_keys.public_key_of(existing)
+    elif io.yes("Generate a dedicated SSH key for the sandbox (recommended)?", True):
+        io.say("  The key has no passphrase: it is used only for this sandbox and the gate script on the")
+        io.say("  VM restricts it to sandbox jobs. It is stored owner-only in CodeSift's config folder.")
+        private, pubkey = vm_keys.generate_key(paths.keys_dir)
+        cfg.key_path, cfg.key_user_supplied = str(private), False
+    else:
+        io.say("  The key file is never read or shown; only its path is stored. A key with a passphrase")
+        io.say("  works only if it is loaded in your ssh-agent (connections run in batch mode).")
+        while True:
+            path = io.ask("Path of the existing private key")
+            try:
+                resolved = validate_key_path(path, user_supplied=True)
+            except ArgError as exc:
+                io.say(f"  {exc}")
+                continue
+            break
+        cfg.key_path, cfg.key_user_supplied = str(resolved), True
+        from codesift.secrets_store import owner_only
+
+        if owner_only(resolved) is False:
+            io.say(f"  warning: {resolved} is readable by other users - run: chmod 600 {resolved}")
+    if pubkey:
+        io.say("")
+        io.say("Public key (safe to share) - the VM admin installs it for the user above:")
+        io.say(f"  {pubkey}")
+        io.say("Recommended authorized_keys line (restricted to the gate, see `sift vm admin-script`):")
+        io.say(f"  {authorized_keys_line(pubkey)}")
+        io.say(f"Or without the gate:  echo '{pubkey}' >> ~{user}/.ssh/authorized_keys")
+        io.say("")
+
+    known = vm_keys.pinned_fingerprints(paths.vm_known_hosts) if cur.host == host and cur.port == port else []
+    if known and cur.host_key_fingerprint in known and io.yes("Keep the pinned host key?", True):
+        cfg.host_key_fingerprint = cur.host_key_fingerprint
+    else:
+        cfg.host_key_fingerprint = _pin(io, paths, host, port)
+    cfg.known_hosts_path = str(paths.vm_known_hosts)
+    note = save_vm_config(paths, cfg)
+    io.say(f"  saved {paths.vm_file} ({note})")
+    lines = [
+        f"Sandbox VM: {user}@{host}:{port} · {runtime} · image {image}"
+        + (" (pinned)" if cfg.image_id else " (not pinned yet: `sift vm image pull`)"),
+        f"Host key: {cfg.host_key_fingerprint}",
+    ]
+    if io.yes("Contact the VM now and run `sift vm doctor`?", False):
+        from codesift.vm.commands import doctor_lines
+
+        for line in doctor_lines(paths):
+            io.say(f"  {line}")
+    return StepResult("vm", True, lines)
+
+
+def noninteractive_vm(opts: SetupOptions, paths: Paths, env: Mapping[str, str]) -> StepResult:
+    if not opts.vm_host or not opts.vm_user:
+        raise SetupError("--vm-host and --vm-user are required")
+    if not opts.vm_pin_fingerprint:
+        raise SetupError("--vm-pin-fingerprint SHA256:... is required (host keys are never trusted blindly)")
+    try:
+        host, user = validate_host(opts.vm_host), validate_user(opts.vm_user)
+        port = validate_port(opts.vm_port)
+    except ArgError as exc:
+        raise SetupError(str(exc)) from None
+    cur = _current_vm(paths) or VMConfig()
+    cfg = VMConfig(host=host, port=port, user=user, runtime=opts.vm_runtime, image=opts.vm_image or cur.image)
+    if cfg.image == cur.image:
+        cfg.image_id = cur.image_id
+    lines: list[str] = []
+    if opts.vm_key:
+        try:
+            cfg.key_path = str(validate_key_path(opts.vm_key, user_supplied=True))
+        except ArgError as exc:
+            raise SetupError(f"--vm-key: {exc}") from None
+        cfg.key_user_supplied = True
+    elif cur.key_path and Path(cur.key_path).is_file():
+        cfg.key_path, cfg.key_user_supplied = cur.key_path, cur.key_user_supplied
+    else:
+        private, pubkey = vm_keys.generate_key(paths.keys_dir)
+        cfg.key_path = str(private)
+        lines.append(f"public key (install on the VM): {pubkey}")
+    found = vm_keys.scan_host_keys(host, port)
+    match = [k for k in found if k.fingerprint == opts.vm_pin_fingerprint]
+    if not match:
+        raise SetupError("the VM's host key does not match --vm-pin-fingerprint - nothing pinned")
+    vm_keys.pin_host_key(paths.vm_known_hosts, host, port, match)
+    cfg.host_key_fingerprint = match[0].fingerprint
+    cfg.known_hosts_path = str(paths.vm_known_hosts)
+    note = save_vm_config(paths, cfg)
+    lines.insert(0, f"Sandbox VM saved to {paths.vm_file} ({note}): {user}@{host}:{port}")
+    return StepResult("vm", True, lines)
+
+
+def show_vm(paths: Paths, env: Mapping[str, str]) -> list[str]:
+    from codesift.vm.selftest import last_result
+
+    if not paths.vm_file.exists():
+        return ["Sandbox VM: not configured (`sift setup --vm`)"]
+    try:
+        cfg = load_vm_config(paths)
+    except SandboxError as exc:
+        return [f"Sandbox VM: invalid ({exc})"]
+    key = "dedicated key" if not cfg.key_user_supplied else "your key file"
+    last = last_result(paths.data)
+    selftest = "never run" if not last else ("passed" if last.get("passed") else "FAILED")
+    return [
+        f"Sandbox VM: {cfg.user}@{cfg.host}:{cfg.port} · {cfg.runtime} · image {cfg.image}"
+        + (" (pinned)" if cfg.image_id else " (not pinned)"),
+        f"  {key} · host key {cfg.host_key_fingerprint or 'NOT pinned'} · last self-test {selftest}",
+        f"  limits {cfg.memory_mb} MB, {cfg.cpus:g} CPU, {cfg.pids} pids, {cfg.job_timeout_s}s per job",
+    ]

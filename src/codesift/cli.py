@@ -136,6 +136,29 @@ def _add_setup(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     ni.add_argument("--claude-cli-path", metavar="PATH")
 
 
+def _add_vm(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser(
+        "vm",
+        help="sandbox VM: doctor, status, reset, image, admin-script",
+        description="The sandbox VM runs project tests, PoCs and patched code in disposable, network-less "
+        "containers. Nothing untrusted runs on this machine. Exit 2 when the VM refuses or fails.",
+    )
+    vsub = p.add_subparsers(dest="vm_cmd", metavar="<action>", required=True)
+    vsub.add_parser("setup", help="same as `sift setup --vm`")
+    vsub.add_parser("doctor", help="connect and run the isolation self-test (first live contact)")
+    vsub.add_parser("status", help="free memory, running CodeSift jobs, pinned image")
+    vsub.add_parser("reset", help="remove containers labelled codesift.job (nothing else)")
+    img = vsub.add_parser("image", help="pull or build the sandbox image (uses the network on the VM)")
+    isub = img.add_subparsers(dest="image_cmd", metavar="<action>", required=True)
+    pl = isub.add_parser("pull", help="pull an image on the VM and pin its id")
+    pl.add_argument("ref", nargs="?", help="image reference (default: the configured image)")
+    bd = isub.add_parser("build", help="build an image from a Dockerfile on the VM and pin its id")
+    bd.add_argument("--dockerfile", required=True, metavar="PATH")
+    bd.add_argument("--tag", required=True, metavar="sift-NAME[:TAG]")
+    adm = vsub.add_parser("admin-script", help="print the VM admin's setup script (never executed here)")
+    adm.add_argument("--gate-only", action="store_true", help="print only the forced-command gate script")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sift",
@@ -148,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_scan(sub)
     _add_setup(sub)
+    _add_vm(sub)
 
     p = sub.add_parser("report", help="re-print the latest summary for the current project")
     p.add_argument("--last", action="store_true", help="the latest run (default)")
@@ -450,6 +474,29 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return run_setup(opts, get_paths(), os.environ)
 
 
+def cmd_vm(args: argparse.Namespace) -> int:
+    import os
+
+    from codesift.vm import commands as vmc
+
+    paths = get_paths()
+    if args.vm_cmd == "setup":
+        from codesift.setup_wizard import SetupOptions, run_setup
+
+        return run_setup(SetupOptions(parts=["vm"]), paths, os.environ)
+    if args.vm_cmd == "doctor":
+        return vmc.cmd_doctor(paths, print)
+    if args.vm_cmd == "status":
+        return vmc.cmd_status(paths, print)
+    if args.vm_cmd == "reset":
+        return vmc.cmd_reset(paths, print)
+    if args.vm_cmd == "image":
+        if args.image_cmd == "pull":
+            return vmc.cmd_image_pull(paths, args.ref, print)
+        return vmc.cmd_image_build(paths, args.dockerfile, args.tag, print)
+    return vmc.cmd_admin_script(paths, args.gate_only, print)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -475,6 +522,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_scan(args)
     if args.command == "setup":
         return cmd_setup(args)
+    if args.command == "vm":
+        return cmd_vm(args)
     if args.command == "report":
         return cmd_report(None)
     if args.command == "baseline":
