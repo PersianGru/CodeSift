@@ -159,6 +159,33 @@ def _add_vm(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     adm.add_argument("--gate-only", action="store_true", help="print only the forced-command gate script")
 
 
+VALIDATE_EPILOG = """exit codes: 0 every selected finding fixed_verified (or the regression check passed),
+            1 some finding not verified (fixed_unproven, rejected_*, inconclusive, fixer_failed),
+            2 configuration/tool error, including a sandbox that is missing or fails its self-test,
+            4 budget exhausted (the report is still written)
+"""
+
+
+def _add_validate(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser(
+        "validate",
+        help="prove a change fixes findings without breaking the project (on a copy, in the sandbox)",
+        description="Validates a change on a copy of the project: the working tree diff against HEAD "
+        "(default), a patch file, or a branch. Tests and PoCs run only in the sandbox VM. The project "
+        "is never modified and nothing is applied.",
+        epilog=VALIDATE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("path", nargs="?", default=".", help="project root (default: current directory)")
+    src = p.add_mutually_exclusive_group()
+    src.add_argument("--patch", metavar="FILE", help="validate this patch file against HEAD")
+    src.add_argument("--branch", metavar="REF", help="validate REF's change since its merge-base with HEAD")
+    p.add_argument(
+        "--finding", metavar="IDS", help="comma-separated finding IDs (default: those the change touches)"
+    )
+    p.add_argument("--json", action="store_true", help="print the machine-readable summary")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sift",
@@ -172,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_scan(sub)
     _add_setup(sub)
     _add_vm(sub)
+    _add_validate(sub)
 
     p = sub.add_parser("report", help="re-print the latest summary for the current project")
     p.add_argument("--last", action="store_true", help="the latest run (default)")
@@ -524,6 +552,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_setup(args)
     if args.command == "vm":
         return cmd_vm(args)
+    if args.command == "validate":
+        import os
+
+        from codesift.validate.commands import cmd_validate
+
+        return cmd_validate(
+            get_paths(),
+            os.environ,
+            args.path,
+            patch_file=args.patch,
+            branch=args.branch,
+            finding_ids=args.finding.split(",") if args.finding else [],
+            as_json=args.json,
+            out=print,
+        )
     if args.command == "report":
         return cmd_report(None)
     if args.command == "baseline":

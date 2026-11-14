@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -74,6 +75,21 @@ class Credentials:
 
 
 @dataclass
+class ValidateSettings:
+    """`[validate]` in .codesift.toml. Commands run only inside the sandbox VM."""
+
+    test: str = ""  # project test command (optional)
+    image: str = ""  # overrides the vm.toml image
+    timeout_s: int = 300
+    never_send: list[str] = field(default_factory=list)
+    allowed_fix_paths: list[str] = field(default_factory=list)
+    max_patch_lines: int = 80
+    poc: dict[str, str] = field(default_factory=dict)  # CWE-89 = "python poc/sqli.py"
+    entry: dict[str, str] = field(default_factory=dict)  # CWE-89 = "app.db:find_user" (canned probes)
+    prepare: str = ""  # network "prepare" step: off unless also --allow-prepare-network
+
+
+@dataclass
 class ProjectConfig:
     exclude: list[str] = field(default_factory=list)
     rules_dirs: list[str] = field(default_factory=list)
@@ -82,6 +98,8 @@ class ProjectConfig:
     disable: list[str] = field(default_factory=list)
     critical_paths: list[str] = field(default_factory=list)
     checklist: str | None = None
+    validate: ValidateSettings = field(default_factory=ValidateSettings)
+    districts: dict[str, list[str]] = field(default_factory=dict)  # [ui.districts]
     path: Path | None = None
 
 
@@ -358,7 +376,82 @@ def parse_project_config(data: Mapping[str, Any], where: str = PROJECT_CONFIG_NA
         cfg.critical_paths = _str_list(review["critical_paths"], f"{where}: review.critical_paths")
     if "checklist" in review:
         cfg.checklist = _expect(review["checklist"], str, f"{where}: review.checklist")
+    cfg.validate = _parse_validate(data.get("validate", {}), where)
+    ui = data.get("ui", {})
+    _expect(ui, dict, f"{where}: [ui]")
+    districts = ui.get("districts", {})
+    _expect(districts, dict, f"{where}: [ui.districts]")
+    for name, prefixes in districts.items():
+        cfg.districts[str(name)] = _str_list(prefixes, f"{where}: ui.districts.{name}")
     return cfg
+
+
+_CWE_KEY = re.compile(r"^CWE-\d{1,5}$")
+_ENTRY = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,200}:[A-Za-z_][A-Za-z0-9_]{0,100}$")
+
+
+def _single_line(value: str, where: str, limit: int = 2000) -> str:
+    if any(c in value for c in "\n\r\x00") or len(value) > limit:
+        raise ConfigError(f"{where}: must be a single line of at most {limit} characters")
+    return value
+
+
+def _parse_validate(section: Any, where: str) -> ValidateSettings:
+    _expect(section, dict, f"{where}: [validate]")
+    v = ValidateSettings()
+    known = {
+        "test",
+        "image",
+        "timeout_s",
+        "never_send",
+        "allowed_fix_paths",
+        "max_patch_lines",
+        "poc",
+        "entry",
+    }
+    known.add("prepare")
+    for key in section:
+        if key not in known:
+            raise ConfigError(f"{where}: unknown key validate.{key}")
+    if "test" in section:
+        v.test = _single_line(
+            _expect(section["test"], str, f"{where}: validate.test"), f"{where}: validate.test"
+        )
+    if "image" in section:
+        v.image = _single_line(
+            _expect(section["image"], str, f"{where}: validate.image"), f"{where}: validate.image"
+        )
+    if "prepare" in section:
+        v.prepare = _single_line(
+            _expect(section["prepare"], str, f"{where}: validate.prepare"), f"{where}: validate.prepare"
+        )
+    if "timeout_s" in section:
+        v.timeout_s = _expect(section["timeout_s"], int, f"{where}: validate.timeout_s")
+        if not 5 <= v.timeout_s <= 3600:
+            raise ConfigError(f"{where}: validate.timeout_s must be between 5 and 3600")
+    if "max_patch_lines" in section:
+        v.max_patch_lines = _expect(section["max_patch_lines"], int, f"{where}: validate.max_patch_lines")
+        if not 1 <= v.max_patch_lines <= 400:
+            raise ConfigError(f"{where}: validate.max_patch_lines must be between 1 and 400 (hard max)")
+    for key in ("never_send", "allowed_fix_paths"):
+        if key in section:
+            setattr(v, key, _str_list(section[key], f"{where}: validate.{key}"))
+    for p in v.allowed_fix_paths:
+        if p.startswith(("/", "\\")) or ".." in p.replace("\\", "/").split("/") or ":" in p:
+            raise ConfigError(f"{where}: validate.allowed_fix_paths must be project-relative ({p!r})")
+    for key, pattern in (("poc", None), ("entry", _ENTRY)):
+        table = section.get(key, {})
+        _expect(table, dict, f"{where}: [validate.{key}]")
+        for cwe, value in table.items():
+            if not _CWE_KEY.match(str(cwe)):
+                raise ConfigError(f'{where}: validate.{key} keys must look like "CWE-89" (got {cwe!r})')
+            text = _single_line(
+                _expect(value, str, f"{where}: validate.{key}.{cwe}"), f"{where}: validate.{key}"
+            )
+            if pattern is not None and not pattern.match(text):
+                raise ConfigError(f'{where}: validate.entry.{cwe} must look like "package.module:function"')
+            getattr(v, key)[str(cwe)] = text
+    return v
 
 
 def load_project_config(root: Path) -> ProjectConfig:
@@ -400,4 +493,27 @@ critical_paths = [
 
 # Optional project checklist (Markdown) used in the logic review.
 # checklist = "docs/SECURITY-CHECKLIST.md"
+
+[validate]
+# Used by `sift validate` and `sift fix`. Commands run ONLY inside the sandbox VM (`sift setup --vm`),
+# never on this machine, in a container without network. Nothing here is run implicitly.
+# test = "python -m pytest -q"        # project tests (single line); compared before/after a patch
+# image = ""                          # sandbox image for this project (overrides vm.toml)
+# timeout_s = 300
+# never_send = ["secrets/**", "*.pem"]  # never copied into the workspace or sent to any model
+# allowed_fix_paths = []              # extra files a fix may touch (default: only the finding's file)
+# max_patch_lines = 80                # changed lines per patch (hard max 400)
+
+[validate.poc]
+# Proof-of-concept commands per CWE, run before and after a patch in the sandbox.
+# Exit 0 = the vulnerable behaviour was reproduced, non-zero = blocked.
+# "CWE-89" = "python poc/sqli.py"
+
+[validate.entry]
+# Callable entry points for CodeSift's canned probes (Python projects), per CWE.
+# "CWE-78" = "app.tools:ping"
+
+[ui.districts]
+# `sift ui` groups files into districts by path prefix; these override the defaults.
+# db = ["db", "models", "sql", "migrations"]
 """

@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from codesift import setup_wizard as sw
-from codesift.vm import keys as vm_keys
 from codesift.paths import Paths
+from codesift.vm import keys as vm_keys
 from codesift.vm.config import load_vm_config
 from codesift.vm.keys import HostKey
 from test_setup_wizard import Script
