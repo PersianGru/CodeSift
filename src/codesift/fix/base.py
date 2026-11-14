@@ -61,7 +61,7 @@ class FixResult:
 class Fixer(Protocol):
     name: str
 
-    def fix(self, request: FixRequest) -> FixResult: ...
+    def fix(self, req: FixRequest, /) -> FixResult: ...
 
 
 @dataclass

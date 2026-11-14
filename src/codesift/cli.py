@@ -185,6 +185,34 @@ def _add_validate(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     )
     p.add_argument("--json", action="store_true", help="print the machine-readable summary")
 
+    p = sub.add_parser(
+        "fix",
+        help="let AI fixers propose patches, verified by deterministic checks (never applied)",
+        description="Fixers (LLM gateway model, Claude CLI, Claude API - the external ones only with "
+        "recorded consent) propose patches on a copy of the project. A patch counts as fixed only "
+        "when the patch policy, project PoCs, tests and re-scan say so. Output is a patch for you to "
+        "review; nothing is applied, merged or pushed.",
+        epilog=VALIDATE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("path", nargs="?", default=".", help="project root (default: current directory)")
+    p.add_argument("--finding", metavar="IDS", help="comma-separated finding IDs")
+    p.add_argument(
+        "--min-severity", choices=SEVERITIES, default="high", help="lowest severity to fix (default high)"
+    )
+    p.add_argument("--max-findings", type=_positive_int, metavar="N", help="cap (default from fix.toml, 5)")
+    p.add_argument("--backend", choices=["gateway", "claude-cli", "claude-api"], help="use only this backend")
+    p.add_argument(
+        "--poc", choices=["none", "project"], default="project", help="PoC source (default project)"
+    )
+    p.add_argument(
+        "--review-patch", action="store_true", help="ask another backend to critique passing diffs"
+    )
+    p.add_argument("--dry-run", action="store_true", help="plan only: no backend and no VM contacted")
+    p.add_argument("--json", action="store_true", help="print the machine-readable summary")
+    p.add_argument("--budget-tokens", type=_positive_int, metavar="N", help="token cap for the run")
+    p.add_argument("--budget-minutes", type=_positive_int, metavar="N", help="wall-clock cap for the run")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -552,6 +580,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_setup(args)
     if args.command == "vm":
         return cmd_vm(args)
+    if args.command == "fix":
+        import os
+
+        from codesift.validate.commands import cmd_fix
+
+        return cmd_fix(
+            get_paths(),
+            os.environ,
+            args.path,
+            finding_ids=args.finding.split(",") if args.finding else [],
+            min_severity=args.min_severity,
+            max_findings=args.max_findings,
+            backend=args.backend,
+            poc=args.poc,
+            review_patch=args.review_patch,
+            dry_run=args.dry_run,
+            as_json=args.json,
+            budget_tokens=args.budget_tokens,
+            budget_minutes=args.budget_minutes,
+            out=print,
+        )
     if args.command == "validate":
         import os
 

@@ -58,6 +58,10 @@ class Redactor:
     def __len__(self) -> int:
         return len(self._secrets)
 
+    def known(self) -> list[str]:
+        """The exact values being masked (for handing on to another Redactor; never print them)."""
+        return sorted(self._secrets)
+
     def scrub(self, text: str) -> str:
         if not text:
             return text

@@ -648,3 +648,136 @@ def show_vm(paths: Paths, env: Mapping[str, str]) -> list[str]:
         f"  {key} · host key {cfg.host_key_fingerprint or 'NOT pinned'} · last self-test {selftest}",
         f"  limits {cfg.memory_mb} MB, {cfg.cpus:g} CPU, {cfg.pids} pids, {cfg.job_timeout_s}s per job",
     ]
+
+
+# ---------------------------------------------------------------- step 3: fixers
+
+FIXER_LINES = {
+    "gateway": "Gateway model - code excerpts stay wherever your LLM gateway is.",
+    "claude-cli": "Claude CLI - runs in a copy of the project with secret files removed; the files it reads "
+    "are sent to Anthropic. Needs your consent.",
+    "claude-api": "Claude API - sends redacted excerpts only to api.anthropic.com. "
+    "Needs a key and your consent.",
+}
+
+
+def step_fixers(io: WizardIO, paths: Paths, env: Mapping[str, str]) -> StepResult:
+    from codesift.fix.claude_cli import find_claude
+    from codesift.fix.config import SUGGESTED_API_MODEL, FixSettings, load_fix_settings, save_fix_settings
+    from codesift.fix.consent import CONSENT_TEXT, has_consent, record
+    from codesift.secrets_store import read_env, write_env
+
+    io.say("")
+    io.say("Step 3 - Fixers")
+    io.say("Fixers propose patches. Deterministic checks decide; nothing is ever applied automatically.")
+    for line in FIXER_LINES.values():
+        io.say(f"  - {line}")
+    try:
+        cur = load_fix_settings(paths)
+    except Exception:  # an invalid fix.toml is replaced by the answers below
+        cur = FixSettings()
+    cfg = FixSettings()
+    enabled = ["gateway"]
+    cli = find_claude(cur.claude_cli.path)
+    if not cli:
+        typed = io.ask(
+            "The `claude` CLI is not on PATH. Its full path (Enter to skip)", cur.claude_cli.path or None
+        )
+        cli = find_claude(typed) if typed else None
+        if typed and not cli:
+            io.say("  not found - the Claude CLI backend stays off")
+    if cli and io.yes("Enable the Claude CLI backend?", has_consent(paths, "claude-cli")):
+        io.say(f"  {CONSENT_TEXT['claude-cli']}")
+        if io.exactly_yes("  Do you consent to this?"):
+            record(paths, "claude-cli", True)
+            enabled.append("claude-cli")
+            cfg.claude_cli.path = cli if cur.claude_cli.path or not find_claude("") else ""
+        else:
+            record(paths, "claude-cli", False)
+    if io.yes("Enable the Claude API backend?", has_consent(paths, "claude-api")):
+        io.say(f"  {CONSENT_TEXT['claude-api']}")
+        if io.exactly_yes("  Do you consent to this?"):
+            existing = read_env(paths.anthropic_file).get("CODESIFT_ANTHROPIC_API_KEY", "")
+            io.redactor.add(existing)
+            key = io.secret(
+                "Anthropic API key ("
+                + (f"currently {describe(existing)}; Enter keeps it" if existing else "input hidden")
+                + ")"
+            )
+            key = key or existing
+            if key:
+                io.redactor.add(key)
+                write_env(
+                    paths.anthropic_file, {"CODESIFT_ANTHROPIC_API_KEY": key}, "Claude API key. Never commit."
+                )
+                cfg.claude_api.model = io.ask(
+                    "Claude API model id", cur.claude_api.model or SUGGESTED_API_MODEL
+                )
+                record(paths, "claude-api", True)
+                enabled.append("claude-api")
+            else:
+                io.say("  no key - the Claude API backend stays off")
+        else:
+            record(paths, "claude-api", False)
+    order = io.ask(f"Order of the backends (comma-separated, from: {', '.join(enabled)})", ",".join(enabled))
+    chosen = [b.strip() for b in order.split(",") if b.strip() in enabled]
+    cfg.backends = list(dict.fromkeys(chosen)) or enabled
+    cfg.escalate_min_severity = io.ask(
+        "Findings at or above this severity go straight to Claude (if enabled)", cur.escalate_min_severity
+    )
+    cfg.max_attempts_per_backend = _ask_int(io, "Attempts per backend", cur.max_attempts_per_backend, 1, 5)
+    cfg.token_budget = _ask_int(io, "Token budget per run", cur.token_budget, 1000, 5_000_000)
+    cfg.time_budget_s = 60 * _ask_int(io, "Time budget per run (minutes)", cur.time_budget_s // 60, 1, 1440)
+    try:
+        note = save_fix_settings(paths, cfg)
+    except Exception as exc:
+        raise SetupError(f"fixer settings not saved: {exc}") from None
+    io.say(f"  saved {paths.fix_file} ({note})")
+    return StepResult(
+        "fixers", True, [f"Fixers: {' -> '.join(cfg.backends)} · escalate at {cfg.escalate_min_severity}"]
+    )
+
+
+def noninteractive_fixers(opts: SetupOptions, paths: Paths, env: Mapping[str, str]) -> StepResult:
+    from codesift.fix.claude_cli import find_claude
+    from codesift.fix.config import SUGGESTED_API_MODEL, FixSettings, save_fix_settings
+    from codesift.fix.consent import EXTERNAL, record
+    from codesift.secrets_store import write_env
+
+    wanted = list(dict.fromkeys(opts.enable_fixer or ["gateway"]))
+    external = [b for b in wanted if b in EXTERNAL]
+    if external and not opts.consent:
+        raise SetupError(
+            f"{', '.join(external)} need --i-consent (recorded with the exact text of what is shared)"
+        )
+    cfg = FixSettings(backends=wanted)
+    if "claude-cli" in wanted:
+        if not find_claude(opts.claude_cli_path or ""):
+            raise SetupError("the `claude` CLI was not found (use --claude-cli-path)")
+        cfg.claude_cli.path = opts.claude_cli_path or ""
+    if "claude-api" in wanted:
+        key = env.get("CODESIFT_ANTHROPIC_API_KEY", "")  # secrets only via the environment, never argv
+        if not key:
+            raise SetupError("set CODESIFT_ANTHROPIC_API_KEY in the environment to enable the Claude API")
+        write_env(paths.anthropic_file, {"CODESIFT_ANTHROPIC_API_KEY": key}, "Claude API key. Never commit.")
+        cfg.claude_api.model = opts.claude_api_model or SUGGESTED_API_MODEL
+    for b in external:
+        record(paths, b, True)
+    note = save_fix_settings(paths, cfg)
+    return StepResult("fixers", True, [f"Fixers saved to {paths.fix_file} ({note}): {' -> '.join(wanted)}"])
+
+
+def show_fixers(paths: Paths, env: Mapping[str, str]) -> list[str]:
+    from codesift.fix.config import FixConfigError, load_fix_settings
+    from codesift.fix.consent import has_consent
+
+    try:
+        cfg = load_fix_settings(paths)
+    except FixConfigError as exc:
+        return [f"Fixers: invalid ({exc})"]
+    consent = ", ".join(
+        f"{b} consent {'recorded' if has_consent(paths, b) else 'MISSING'}"
+        for b in cfg.backends
+        if b != "gateway"
+    )
+    return [f"Fixers: {' -> '.join(cfg.backends)}" + (f" · {consent}" if consent else "")]

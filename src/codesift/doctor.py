@@ -316,3 +316,45 @@ def format_checks(checks: list[Check]) -> str:
 
 def has_failures(checks: list[Check]) -> bool:
     return any(c.status == FAIL for c in checks)
+
+
+def fixers_checks(paths: Paths, env: Mapping[str, str]) -> list[Check]:
+    """Fixer backends: enabled, consent recorded, CLI found, API key present. Values never shown."""
+    from codesift.fix.claude_cli import find_claude
+    from codesift.fix.config import FixConfigError, load_fix_settings
+    from codesift.fix.consent import has_consent
+    from codesift.secrets_store import StoreError, read_env
+
+    try:
+        cfg = load_fix_settings(paths)
+    except FixConfigError as exc:
+        return [Check("fixers", FAIL, str(exc), fix="run `sift setup --fixers`")]
+    where = "fix.toml" if paths.fix_file.is_file() else "defaults (no fix.toml)"
+    out = [Check("fixers", OK, f"{' -> '.join(cfg.backends)} ({where})")]
+    for name in cfg.backends:
+        if name == "gateway":
+            continue
+        if not has_consent(paths, name):
+            out.append(Check(name, TODO, "consent not recorded - unusable", fix="run `sift setup --fixers`"))
+            continue
+        if name == "claude-cli":
+            path = find_claude(cfg.claude_cli.path)
+            out.append(
+                Check(name, OK, f"consent recorded, CLI {path}")
+                if path
+                else Check(name, FAIL, "CLI not found", fix="install it or set [claude_cli] path")
+            )
+        else:
+            try:
+                key = env.get("CODESIFT_ANTHROPIC_API_KEY") or read_env(paths.anthropic_file).get(
+                    "CODESIFT_ANTHROPIC_API_KEY", ""
+                )
+            except StoreError:
+                key = ""
+            if key and cfg.claude_api.model:
+                out.append(
+                    Check(name, OK, f"consent recorded, key {describe(key)}, model {cfg.claude_api.model}")
+                )
+            else:
+                out.append(Check(name, FAIL, "key or model missing", fix="run `sift setup --fixers`"))
+    return out

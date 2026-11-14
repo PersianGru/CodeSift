@@ -112,3 +112,67 @@ def cmd_validate(
     code, run_dir, report = run_engine(paths, root, opts, deps or default_deps(paths, env))
     print_result(report, run_dir, as_json, out)
     return code
+
+
+def cmd_fix(
+    paths: Paths,
+    env: Mapping[str, str],
+    path: str,
+    *,
+    finding_ids: list[str],
+    min_severity: str,
+    max_findings: int | None,
+    backend: str | None,
+    poc: str,
+    review_patch: bool,
+    dry_run: bool,
+    as_json: bool,
+    budget_tokens: int | None,
+    budget_minutes: int | None,
+    out: Callable[[str], None],
+    deps: EngineDeps | None = None,
+) -> int:
+    from codesift.fix.config import FixConfigError, load_fix_settings
+    from codesift.fix.ladder import build_backends, make_ladder, make_reviewer
+    from codesift.models import Severity
+    from codesift.redact import Redactor
+
+    root = Path(path).resolve()
+    if not root.is_dir():
+        out(f"sift fix: {root} is not a directory")
+        return 2
+    try:
+        settings = load_fix_settings(paths)
+    except FixConfigError as exc:
+        out(f"sift fix: {exc}")
+        return 2
+    if backend and backend not in settings.backends:
+        settings.backends.append(backend)
+    if deps is None:
+        deps = default_deps(paths, env)
+        redactor = Redactor(deps.secrets)
+        backends = build_backends(paths, env, settings, redactor)
+        deps.secrets = sorted(set(deps.secrets) | set(redactor.known()))
+        if backend and backend not in backends.fixers:
+            out(f"sift fix: backend {backend} is not usable: {backends.unavailable.get(backend, 'unknown')}")
+            return 2
+        for name, why in backends.unavailable.items():
+            out(f"  note: {name} not used ({why})")
+        deps.ladder = make_ladder(settings, backends, backend)
+        deps.reviewer = make_reviewer(backends) if review_patch else None
+    opts = EngineOptions(
+        mode="fix",
+        finding_ids=finding_ids,
+        min_severity=Severity.parse(min_severity),
+        max_findings=max_findings or settings.max_findings,
+        poc_mode=poc,
+        dry_run=dry_run,
+        backend=backend,
+        budget_tokens=budget_tokens or settings.token_budget,
+        budget_s=(budget_minutes * 60) if budget_minutes else settings.time_budget_s,
+        finding_budget_s=settings.finding_time_budget_s,
+        review_patch=review_patch,
+    )
+    code, run_dir, report = run_engine(paths, root, opts, deps)
+    print_result(report, run_dir, as_json, out)
+    return code
