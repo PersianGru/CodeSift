@@ -10,7 +10,7 @@
 <body>
   <a class="skip" href="#dashboard">Skip to the findings table</a>
   <header class="topbar">
-    <h1>CodeSift <span class="accent">City</span></h1>
+    <h1>CodeSift<span class="brackets" aria-hidden="true">()</span> <span class="accent">City</span></h1>
     <label class="run-pick">Run
       <select id="run-select" aria-label="Choose a run"></select>
     </label>
@@ -42,6 +42,18 @@
       <aside class="panel info" aria-labelledby="info-h">
         <h2 id="info-h">Info</h2>
         <div id="info">Click a building, a station or a bug.</div>
+      </aside>
+
+      <aside class="panel traffic" aria-labelledby="traffic-h">
+        <h2 id="traffic-h">Traffic</h2>
+        <ul>
+          <li><span class="dot t-scan"></span>Scanners and re-scan</li>
+          <li><span class="dot t-llm"></span>Prompt to an LLM</li>
+          <li><span class="dot t-reply"></span>LLM reply or patch</li>
+          <li><span class="dot t-sandbox"></span>Sandbox VM job or result</li>
+          <li><span class="dot t-verdict"></span>Gate verdict, tokens</li>
+          <li><span class="dot t-fail"></span>Failed gate or fixer</li>
+        </ul>
       </aside>
 
       <aside class="panel log" aria-labelledby="log-h">

@@ -25,7 +25,10 @@ HttpOnly, SameSite=Strict cookie and redirects to `/`. Press Ctrl-C to stop the 
 
 ## The living city
 
-The city is a top-down neon night city of your project:
+The city is a 3D night city of your project, lit by the amber orb of the command tower. The colours
+follow the 21cel palette: near-black surfaces, amber accents, soft green for good and soft red for bad.
+The look comes from three.js alone (soft shadows, layered lights, fog, additive glow sprites), with
+no extra libraries:
 
 - **Buildings and districts.** Buildings are files, grouped in districts by path prefix:
   - *db/ Data Vault*
@@ -79,7 +82,21 @@ The city is a top-down neon night city of your project:
 - **Driven by real events.** Bugs walk to the stations in event order. `fixed_*` bugs walk home as
   citizens and their building is repaired. Rejected bugs go to the landfill, inconclusive ones to
   limbo. City health = buildings that are not infected or repairing ÷ all buildings.
-- **Always alive.** Two-lane traffic, drones, rain, pings, flickering beacons and smoke, rotating
+- **Traffic between the parts.** Glowing packets travel along arcs between the stations, driven
+  by the run's events. The Traffic panel explains the colours:
+
+  | Colour | Traffic | Events |
+  |---|---|---|
+  | blue | scanners and re-scans | `run.start` (tower to districts), `finding.detected` (file to tower), verify stage |
+  | amber | prompt to an LLM | triage (tower to Oracle), `fix.attempt` (file to the fixer's station) |
+  | light amber | LLM reply or patch | triage reply, `fix.result` (fixer to checkpoint) |
+  | green | sandbox VM | `selftest.result`, `sandbox.start` (checkpoint to quarantine lab), `sandbox.result` |
+  | white | gate verdicts, tokens | `policy.verdict`, `verify.result`, `budget.update` |
+  | red | failure | a failed gate, policy verdict or fixer result |
+
+  A link brightens while packets use it. A faint heartbeat from the tower keeps the network
+  visible between events.
+- **Always alive.** Two-lane traffic, drones, floating dust, street lamps, pings, flickering beacons and smoke, rotating
   dishes and gears, fire glow.
   - `prefers-reduced-motion` reduces all of it.
   - The top bar has Pause and Speed controls.

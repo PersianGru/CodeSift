@@ -26,8 +26,9 @@ Prove fixes, not just find problems. The scan commands behave as before. Design:
   - an escalation ladder, budgets and a JSON edit protocol;
   - mechanical feedback between attempts and an optional advisory `--review-patch`;
   - `--dry-run` and `--json`, an audit log and the event log.
-- `sift ui`: a local token-protected web UI with a top-down neon "living city" (vendored three.js
-  r128) and a plain dashboard. Decisions are recorded; nothing is applied. `--demo` and `--run DIR`
+- `sift ui`: a local token-protected web UI with a 3D "living city" (vendored three.js
+  r128, 21cel palette, shadows and glow, animated traffic between scanners, LLM backends,
+  sandbox and gates) and a plain dashboard. Decisions are recorded; nothing is applied. `--demo` and `--run DIR`
   replay runs.
 - `.codesift.toml`: new `[validate]`, `[validate.poc]` and `[ui.districts]` sections.
 - `sift doctor`: gateway, VM and fixer sections.

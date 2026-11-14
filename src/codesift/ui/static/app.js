@@ -7,7 +7,7 @@
     traversal: "Tunnel worm (path traversal)", secret: "Key thief (secret)", dependency: "Rotten crate (dependency)",
     glitch: "Glitch (other)"
   };
-  var COLORS = { sqli: "#ff3b5c", xss: "#ff2fd6", cmdi: "#ffb52e", traversal: "#9b5cff", secret: "#ffe066", dependency: "#7dff4d", glitch: "#2ef2ff" };
+  var COLORS = { sqli: "#ff8a8a", xss: "#e879f9", cmdi: "#f5a524", traversal: "#a78bfa", secret: "#7dd3fc", dependency: "#bef264", glitch: "#5eead4" };
 
   var state = { run: null, config: {}, findings: {}, order: [], history: [], city: null, source: null, stats: { health: 100, repaired: 0, landfill: 0, limbo: 0, tokens: 0 }, hatch: 100 };
   var $ = function (id) { return document.getElementById(id); };
