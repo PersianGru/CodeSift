@@ -21,8 +21,8 @@ from codesift.config import (
 )
 from codesift.detect import detect, path_excluded, unlocked_manifests
 from codesift.finding import Finding
+from codesift.gateway import ClientSettings, GatewayClient, LLMError, ModelSession
 from codesift.gitutil import changed_files, git, git_info, ref_exists
-from codesift.llm import BifrostClient, ClientSettings, LLMError, ModelSession
 from codesift.lockfile import LockError, active_lock_path, load_lock
 from codesift.models import EXIT_ERROR, EXIT_FINDINGS, EXIT_LLM_UNAVAILABLE, EXIT_OK, Severity
 from codesift.normalize import (
@@ -214,15 +214,15 @@ def _llm_phase(
     try:
         creds = load_credentials(paths, allow_http_localhost=user_cfg.allow_http_localhost)
     except ConfigError as exc:
-        errors.append(f"Bifrost credentials: {exc}")
+        errors.append(f"LLM gateway settings: {exc}")
         return "unavailable (credentials invalid) — findings listed untriaged", None
     if creds is None:
-        return "not configured (no Bifrost credentials — see `sift doctor`)", None
+        return "not configured (no LLM gateway — run `sift setup --llm`)", None
     llm_cfg = user_cfg.llm
     for key, value in model_overrides(paths).items():
         setattr(llm_cfg, key, value)
     redactor.add(creds.api_key)
-    client = BifrostClient(
+    client = GatewayClient(
         creds,
         ClientSettings(
             timeout_s=llm_cfg.call_timeout_s, retries=llm_cfg.retries, max_tokens=llm_cfg.max_tokens

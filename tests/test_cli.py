@@ -49,9 +49,9 @@ def test_doctor_never_shows_key(paths: Paths, fake_secret: Callable[[str], str])
     checks = run_checks(paths, env={})
     text = repr(checks)
     assert key not in text
-    creds = next(c for c in checks if c.name == "bifrost credentials")
+    creds = next(c for c in checks if c.name == "LLM gateway")
     assert creds.status == OK
-    assert f"key len {len(key)}" in creds.detail
+    assert f"key set (len {len(key)})" in creds.detail
 
 
 def test_doctor_flags_http_url(paths: Paths) -> None:
@@ -59,5 +59,5 @@ def test_doctor_flags_http_url(paths: Paths) -> None:
         "BIFROST_BASE_URL=http://gw.example.com/v1\nBIFROST_API_KEY=abcdef1234\n", encoding="utf-8"
     )
     checks = run_checks(paths, env={})
-    creds = next(c for c in checks if c.name == "bifrost credentials")
+    creds = next(c for c in checks if c.name == "LLM gateway")
     assert creds.status == FAIL

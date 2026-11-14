@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from codesift.config import load_credentials, load_user_config, model_overrides  # noqa: E402
-from codesift.llm import BifrostClient, ClientSettings, LLMError  # noqa: E402
+from codesift.gateway import BifrostClient, ClientSettings, LLMError  # noqa: E402
 from codesift.paths import Paths, get_paths  # noqa: E402
 from codesift.redact import Redactor  # noqa: E402
 from codesift.scan import ScanOptions, scan  # noqa: E402

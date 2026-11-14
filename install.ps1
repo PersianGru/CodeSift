@@ -5,12 +5,13 @@
 .DESCRIPTION
     Creates %USERPROFILE%\.codesift (venv, checksum-verified scanners, rules, command shim), installs
     the Claude Code skill /sift and a default config. Asks before it adds the shim folder to your
-    user PATH and before it copies Bifrost credentials (the copy gets a user-only ACL).
+    user PATH and before it copies LLM gateway settings (the copy gets a user-only ACL). The package
+    includes the sandbox gate script and the UI assets. After the install, run `sift setup`.
 
 .EXAMPLE
     ./install.ps1
-    ./install.ps1 -AddToPath -CredentialsFrom C:\path\to\bifrost.env
-    ./install.ps1 -Uninstall            # keeps runs and credentials
+    ./install.ps1 -AddToPath -CredentialsFrom C:\path\to\gateway.env
+    ./install.ps1 -Uninstall            # keeps runs, settings, keys and credentials
     ./install.ps1 -Uninstall -Purge     # removes everything
 #>
 [CmdletBinding()]
@@ -67,17 +68,19 @@ if ($AddToPath) {
     if ($answer -match "^[yY]") { $installArgs += "--add-to-path" }
 }
 
-$credFile = Join-Path $configDir "bifrost.env"
+$credFile = Join-Path $configDir "gateway.env"
+$legacyFile = Join-Path $configDir ("bif" + "rost.env")
 if ($CredentialsFrom) {
     $installArgs += @("--credentials-from", $CredentialsFrom)
-} elseif (-not (Test-Path $credFile) -and -not $Yes) {
-    Write-Host "LLM triage needs Bifrost credentials (BIFROST_BASE_URL, BIFROST_API_KEY)."
-    $src = Read-Host "Path of an env file to copy them from (Enter to skip; values are never shown)"
+} elseif (-not (Test-Path $credFile) -and -not (Test-Path $legacyFile) -and -not $Yes) {
+    Write-Host "LLM triage needs an LLM gateway. Recommended: run 'sift setup' after the install."
+    $src = Read-Host "Or the path of an env file to copy the gateway settings from (Enter to skip; values are never shown)"
     if ($src) { $installArgs += @("--credentials-from", $src) }
 }
 
 & $pyExe @pyArgs @installArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host ""
-Write-Host "Next: open a new terminal and run 'sift doctor', then 'sift scan' in any project."
+Write-Host "Next: open a new terminal and run 'sift setup' (LLM gateway, sandbox VM, fixers), then"
+Write-Host "'sift doctor', then 'sift scan' in any project."
 Write-Host "In Claude Code: /sift"

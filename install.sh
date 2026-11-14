@@ -2,9 +2,9 @@
 # Install (or uninstall) CodeSift for the current user (Linux / macOS). No root needed.
 #
 #   ./install.sh                                  install (asks before copying credentials)
-#   ./install.sh --credentials-from FILE          copy BIFROST_* keys from FILE (mode 600)
+#   ./install.sh --credentials-from FILE          copy LLM gateway settings from FILE (mode 600)
 #   ./install.sh --no-skill --yes                 non-interactive
-#   ./install.sh --uninstall [--purge]            remove (--purge also deletes runs and credentials)
+#   ./install.sh --uninstall [--purge]            remove (--purge also deletes runs, settings, keys)
 set -eu
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -44,9 +44,9 @@ if [ -n "$UNINSTALL" ]; then
 fi
 
 CONFIG_DIR="${CODESIFT_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/codesift}"
-if [ -z "$CREDS" ] && [ -z "$YES" ] && [ ! -f "$CONFIG_DIR/bifrost.env" ] && [ -t 0 ]; then
-    echo "LLM triage needs Bifrost credentials (BIFROST_BASE_URL, BIFROST_API_KEY)."
-    printf "Path of an env file to copy them from (Enter to skip; values are never shown): "
+if [ -z "$CREDS" ] && [ -z "$YES" ] && [ ! -f "$CONFIG_DIR/gateway.env" ] && [ -t 0 ]; then
+    echo "LLM triage needs an LLM gateway. Recommended: run 'sift setup' after the install."
+    printf "Or the path of an env file to copy the gateway settings from (Enter to skip; values are never shown): "
     read -r CREDS || CREDS=""
 fi
 
@@ -61,4 +61,5 @@ case ":$PATH:" in
     *":$BIN:"*) ;;
     *) echo "Add $BIN to your PATH (e.g. in ~/.profile): export PATH=\"$BIN:\$PATH\"" ;;
 esac
-echo "Next: run 'sift doctor', then 'sift scan' in any project. In Claude Code: /sift"
+echo "Next: run 'sift setup' (LLM gateway, sandbox VM, fixers), then 'sift doctor', then 'sift scan'."
+echo "In Claude Code: /sift"

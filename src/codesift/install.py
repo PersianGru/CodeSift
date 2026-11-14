@@ -2,7 +2,7 @@
 
 install:  venv + hashed Python scanners, verified binaries, rules, package snapshot, command shims,
           Claude Code skill, default config.toml. Optional, only on explicit flags (the install
-          scripts ask first): copy Bifrost credentials (user-only permissions) and add the shim
+          scripts ask first): copy LLM gateway settings (user-only permissions) and add the shim
           folder to the user PATH (Windows).
 uninstall: removes what install created; runs/ and config/ (credentials) only with --purge.
 """
@@ -25,18 +25,18 @@ from codesift.tools import install_tool, prune_versions
 from codesift.update import self_test
 
 SKILL_MARKER = "name: sift"
-CRED_KEYS = ("BIFROST_BASE_URL", "BIFROST_API_KEY", "BIFROST_MODEL", "BIFROST_FALLBACK_MODEL")
 
 DEFAULT_CONFIG = """\
-# CodeSift user config. All keys optional; defaults shown. Credentials live in bifrost.env next to it.
+# CodeSift user config. All keys optional; defaults shown. LLM gateway settings live in gateway.env
+# next to it (`sift setup --llm`).
 # threshold = "high"        # severity that makes `sift scan` exit 1
 # jobs = 2                  # scanners in parallel
-# offline = false           # true = no network except Bifrost
+# offline = false           # true = no network except a loopback/LAN LLM gateway and the VM
 # allow_http_localhost = false
 
 [llm]
-# model = "ollama/qwen3.8:27b-mtp-q4_K_M"
-# fallback_model = "ollama/qwen3-coder:30b"
+# model = "<model id offered by your gateway>"
+# fallback_model = "<second model id>"
 # think = "auto"            # auto | on | off  (auto = on, see docs/model-eval.md)
 # max_findings = 60
 # total_budget_s = 1200
@@ -196,22 +196,22 @@ def restrict_to_user(path: Path) -> str:
 
 
 def copy_credentials(paths: Paths, source: Path, log: list[str]) -> None:
-    """Copy BIFROST_* keys (only those) from an env file. Values are never printed."""
-    values = load_env_file(source)
-    picked = {k: values[k] for k in CRED_KEYS if values.get(k)}
-    missing = [k for k in ("BIFROST_BASE_URL", "BIFROST_API_KEY") if k not in picked]
-    if missing:
-        raise InstallError(f"{source} has no {', '.join(missing)}")
-    from codesift.config import validate_base_url
+    """Copy the LLM gateway settings (only those, new or 0.1.0 names) from an env file into
+    gateway.env. Values are never printed."""
+    from codesift.config import GATEWAY_KEYS, LEGACY_KEYS, LLM_URL, validate_base_url
+    from codesift.secrets_store import save_gateway
 
-    validate_base_url(picked["BIFROST_BASE_URL"])
-    paths.config.mkdir(parents=True, exist_ok=True)
-    target = paths.credentials_file
-    tmp = target.with_name(target.name + ".tmp")
-    tmp.write_text("".join(f"{k}={v}\n" for k, v in picked.items()), encoding="utf-8", newline="\n")
-    note = restrict_to_user(tmp)
-    tmp.replace(target)
-    log.append(f"credentials -> {target} (keys: {', '.join(picked)}; {note})")
+    values = load_env_file(source)
+    picked: dict[str, str] = {}
+    for key in GATEWAY_KEYS:
+        value = values.get(key) or values.get(LEGACY_KEYS.get(key, ""), "")
+        if value:
+            picked[key] = value
+    if LLM_URL not in picked:
+        raise InstallError(f"{source} has no LLM gateway base URL")
+    validate_base_url(picked[LLM_URL])
+    note = save_gateway(paths, picked)
+    log.append(f"LLM gateway settings -> {paths.gateway_file} ({len(picked)} keys; {note})")
 
 
 # ---------------------------------------------------------------- user PATH (Windows)

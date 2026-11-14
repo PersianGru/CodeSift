@@ -23,9 +23,9 @@ from codesift.triage import (
     triage_findings,
     validate,
 )
-from mock_bifrost import (
+from mock_gateway import (
     MockState,
-    mock_bifrost,
+    mock_gateway,
     reasoning_only,
     reply,
     slow,
@@ -50,7 +50,7 @@ CODE = "\n".join(
 
 @pytest.fixture
 def server() -> Iterator[tuple[str, MockState]]:
-    with mock_bifrost() as s:
+    with mock_gateway() as s:
         yield s
 
 

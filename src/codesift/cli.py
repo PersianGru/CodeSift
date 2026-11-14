@@ -34,7 +34,7 @@ from codesift.update import check, format_plan, rollback
 
 DESCRIPTION = """\
 CodeSift runs free, open-source security scanners on a code project, lets a local LLM
-(via a Bifrost gateway) triage the findings, and writes a short summary.md to read.
+(via any OpenAI-compatible LLM gateway) triage the findings, and writes a short summary.md to read.
 
 Read-only on the scanned code. No network scanning. Secrets are always masked.
 Start with `sift scan` and read the printed summary; run `sift doctor` if anything fails.
@@ -80,7 +80,9 @@ def _add_scan(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     )
     p.add_argument("--no-llm", action="store_true", help="skip LLM triage")
     p.add_argument("--require-llm", action="store_true", help="exit 3 if the LLM is unavailable")
-    p.add_argument("--offline", action="store_true", help="no network except Bifrost")
+    p.add_argument(
+        "--offline", action="store_true", help="no network except a loopback/LAN LLM gateway you configured"
+    )
     p.add_argument(
         "--only", metavar="TOOLS", help=f"comma-separated scanners to run ({', '.join(RUNNER_NAMES)})"
     )
@@ -90,6 +92,48 @@ def _add_scan(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p.add_argument("--json", action="store_true", help="print a machine-readable summary on stdout")
     p.add_argument("--max-llm", type=int, metavar="N", help="max findings sent to the LLM")
     p.add_argument("--verbose", action="store_true", help="list low/info and baselined findings too")
+
+
+def _add_setup(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser(
+        "setup",
+        help="wizard: LLM gateway, sandbox VM and fixer backends (secrets never shown)",
+        description="Interactive setup. Run it once; re-run any time (current values are kept). "
+        "Secrets are read with hidden input, or from environment variables in --non-interactive mode "
+        "(CODESIFT_LLM_API_KEY, CODESIFT_ANTHROPIC_API_KEY) - never from the command line.",
+    )
+    part = p.add_argument_group("parts (default: all)")
+    part.add_argument("--llm", action="store_true", help="only the LLM gateway")
+    part.add_argument("--vm", action="store_true", help="only the sandbox VM")
+    part.add_argument("--fixers", action="store_true", help="only the fixer backends")
+    p.add_argument("--show", action="store_true", help="print the current settings (masked)")
+    p.add_argument("--reset", metavar="PART", choices=["llm", "vm", "fixers"], help="remove a part's files")
+    ni = p.add_argument_group("non-interactive mode")
+    ni.add_argument("--non-interactive", action="store_true", help="read answers from flags/env only")
+    ni.add_argument("--llm-base-url", metavar="URL")
+    ni.add_argument("--llm-model", metavar="ID")
+    ni.add_argument("--llm-fallback-model", metavar="ID")
+    ni.add_argument(
+        "--llm-trusted-network", action="store_true", help="allow plain http for a loopback/LAN gateway"
+    )
+    ni.add_argument("--test-connection", action="store_true", help="probe the gateway after saving")
+    ni.add_argument("--vm-host", metavar="HOST")
+    ni.add_argument("--vm-port", type=int, default=22, metavar="N")
+    ni.add_argument("--vm-user", metavar="USER")
+    ni.add_argument("--vm-key", metavar="PATH", help="existing private key (default: generate a new one)")
+    ni.add_argument("--vm-pin-fingerprint", metavar="SHA256:...", help="host key fingerprint to pin")
+    ni.add_argument("--vm-runtime", choices=["docker", "podman"], default="docker")
+    ni.add_argument("--vm-image", metavar="REF")
+    ni.add_argument(
+        "--enable-fixer",
+        action="append",
+        choices=["gateway", "claude-cli", "claude-api"],
+        default=[],
+        help="enable a fixer backend (repeatable; external ones need --i-consent)",
+    )
+    ni.add_argument("--i-consent", action="store_true", help="record consent for the enabled external fixers")
+    ni.add_argument("--claude-api-model", metavar="ID")
+    ni.add_argument("--claude-cli-path", metavar="PATH")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     _add_scan(sub)
+    _add_setup(sub)
 
     p = sub.add_parser("report", help="re-print the latest summary for the current project")
     p.add_argument("--last", action="store_true", help="the latest run (default)")
@@ -132,13 +177,15 @@ def build_parser() -> argparse.ArgumentParser:
         "developers: the checkout's tools.lock.json)",
     )
 
-    p = sub.add_parser("doctor", help="check installation, tools, config and Bifrost (values never shown)")
-    p.add_argument("--no-llm", action="store_true", help="skip the Bifrost /models and warm-up checks")
+    p = sub.add_parser(
+        "doctor", help="check installation, tools, config, LLM gateway, VM and fixers (values never shown)"
+    )
+    p.add_argument("--no-llm", action="store_true", help="skip the gateway /models and warm-up checks")
     p = sub.add_parser("install", help="(re)install venv, tools, command shim and Claude skill")
     p.add_argument(
         "--add-to-path", action="store_true", help="add the shim folder to the user PATH (Windows)"
     )
-    p.add_argument("--credentials-from", metavar="FILE", help="copy BIFROST_* keys from this env file")
+    p.add_argument("--credentials-from", metavar="FILE", help="copy LLM gateway settings from this env file")
     p.add_argument("--no-skill", action="store_true", help="do not install the Claude Code skill")
     p = sub.add_parser("uninstall", help="remove CodeSift (runs/ and config/ only with --purge)")
     p.add_argument("--purge", action="store_true", help="also delete scan runs and config/credentials")
@@ -372,6 +419,37 @@ def cmd_baseline(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
 
+def cmd_setup(args: argparse.Namespace) -> int:
+    import os
+
+    from codesift.setup_wizard import PARTS, SetupOptions, run_setup
+
+    parts = [name for name in PARTS if getattr(args, name)] or list(PARTS)
+    opts = SetupOptions(
+        parts=parts,
+        non_interactive=args.non_interactive,
+        show=args.show,
+        reset=args.reset,
+        llm_base_url=args.llm_base_url,
+        llm_model=args.llm_model,
+        llm_fallback_model=args.llm_fallback_model,
+        llm_trusted_network=args.llm_trusted_network,
+        vm_host=args.vm_host,
+        vm_port=args.vm_port,
+        vm_user=args.vm_user,
+        vm_key=args.vm_key,
+        vm_pin_fingerprint=args.vm_pin_fingerprint,
+        vm_runtime=args.vm_runtime,
+        vm_image=args.vm_image,
+        enable_fixer=args.enable_fixer,
+        consent=args.i_consent,
+        claude_api_model=args.claude_api_model,
+        claude_cli_path=args.claude_cli_path,
+        test_connection=args.test_connection,
+    )
+    return run_setup(opts, get_paths(), os.environ)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -395,6 +473,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_hook(args.action)
     if args.command == "scan":
         return cmd_scan(args)
+    if args.command == "setup":
+        return cmd_setup(args)
     if args.command == "report":
         return cmd_report(None)
     if args.command == "baseline":

@@ -11,14 +11,22 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from codesift.config import ConfigError, load_credentials, load_user_config, model_overrides
+from codesift.config import (
+    LLM_KEY,
+    ConfigError,
+    has_legacy_credentials,
+    load_credentials,
+    load_user_config,
+    model_overrides,
+)
 from codesift.envfile import load_env_file
-from codesift.llm import BifrostClient, ClientSettings, LLMError
+from codesift.gateway import ClientSettings, GatewayClient, LLMError
 from codesift.lockfile import LockError, active_lock_path, load_lock
 from codesift.paths import Paths
 from codesift.pyreqs import installed_versions as installed_py
 from codesift.redact import Redactor
 from codesift.rules import rules_dir, verify_rules
+from codesift.secrets_store import describe
 from codesift.state import load_state, parse_iso
 from codesift.tools import ToolError, resolve_tool
 
@@ -35,50 +43,54 @@ class Check:
 
 def _credentials_checks(paths: Paths, env: Mapping[str, str], allow_http: bool) -> list[Check]:
     checks: list[Check] = []
-    path = paths.credentials_file
+    path = paths.gateway_file
     if path.is_file():
         try:
             keys = load_env_file(path)
-            summary = ", ".join(f"{k} (len {len(v)})" for k, v in sorted(keys.items()))
-            checks.append(Check("credentials file", OK, f"{path}: {summary or 'no keys'}"))
+            summary = ", ".join(
+                f"{k} ({describe(v)})" if k == LLM_KEY else k for k, v in sorted(keys.items())
+            )
+            checks.append(Check("gateway settings file", OK, f"{path}: {summary or 'no keys'}"))
         except (OSError, UnicodeDecodeError) as exc:
-            checks.append(Check("credentials file", FAIL, f"{path}: unreadable ({type(exc).__name__})"))
+            checks.append(Check("gateway settings file", FAIL, f"{path}: unreadable ({type(exc).__name__})"))
         if os.name != "nt":
             mode = stat.S_IMODE(path.stat().st_mode)
             if mode & 0o077:
                 checks.append(
-                    Check("credentials permissions", WARN, f"mode {mode:o}", fix=f"chmod 600 {path}")
+                    Check("gateway file permissions", WARN, f"mode {mode:o}", fix=f"chmod 600 {path}")
                 )
-    else:
+    elif has_legacy_credentials(paths, env):
         checks.append(
             Check(
-                "credentials file",
+                "gateway settings file",
                 WARN,
-                f"{path} not found",
-                fix="run `sift install` or create it with BIFROST_BASE_URL and BIFROST_API_KEY",
+                "using settings from an older CodeSift version",
+                fix="run `sift setup --llm` once to migrate them",
             )
         )
+    else:
+        checks.append(Check("gateway settings file", WARN, f"{path} not found", fix="run `sift setup --llm`"))
     try:
         creds = load_credentials(paths, env, allow_http_localhost=allow_http)
         if creds is None:
             checks.append(
                 Check(
-                    "bifrost credentials",
+                    "LLM gateway",
                     WARN,
                     "not configured - scans will run without LLM triage",
-                    fix=f"set BIFROST_BASE_URL and BIFROST_API_KEY in {path}",
+                    fix="run `sift setup --llm`",
                 )
             )
         else:
             checks.append(
                 Check(
-                    "bifrost credentials",
+                    "LLM gateway",
                     OK,
-                    f"host {creds.host}, key len {len(creds.api_key)}, source {creds.source}",
+                    f"host {creds.host}, key {describe(creds.api_key)}, source {creds.source}",
                 )
             )
     except ConfigError as exc:
-        checks.append(Check("bifrost credentials", FAIL, str(exc), fix=f"edit {path}"))
+        checks.append(Check("LLM gateway", FAIL, str(exc), fix="run `sift setup --llm`"))
     return checks
 
 
@@ -125,7 +137,7 @@ def _llm_checks(paths: Paths, env: Mapping[str, str], allow_http: bool) -> list[
     cfg = load_user_config(paths).llm
     for key, value in model_overrides(paths, env).items():
         setattr(cfg, key, value)
-    client = BifrostClient(creds, ClientSettings(timeout_s=cfg.warmup_timeout_s, retries=0, backoff_s=(0,)))
+    client = GatewayClient(creds, ClientSettings(timeout_s=cfg.warmup_timeout_s, retries=0, backoff_s=(0,)))
     redactor = Redactor([creds.api_key])
     out: list[Check] = []
     try:
@@ -133,14 +145,14 @@ def _llm_checks(paths: Paths, env: Mapping[str, str], allow_http: bool) -> list[
         models = client.models()
         out.append(
             Check(
-                "bifrost /models",
+                "gateway /models",
                 OK,
-                f"HTTPS {creds.host}, {len(models)} models, {time.monotonic() - start:.1f}s",
+                f"{creds.host}, {len(models)} models, {time.monotonic() - start:.1f}s",
             )
         )
     except LLMError as exc:
-        fix = "check BIFROST_BASE_URL / the gateway is up / the VPN or network path"
-        return [Check("bifrost /models", FAIL, redactor.scrub(str(exc)), fix=fix)]
+        fix = "check the base URL (`sift setup --llm`) / that the gateway is up / the VPN or network path"
+        return [Check("gateway /models", FAIL, redactor.scrub(str(exc)), fix=fix)]
     for label, model in (("primary model", cfg.model), ("fallback model", cfg.fallback_model)):
         if model in models:
             out.append(Check(label, OK, model))
@@ -149,8 +161,8 @@ def _llm_checks(paths: Paths, env: Mapping[str, str], allow_http: bool) -> list[
                 Check(
                     label,
                     FAIL if label == "primary model" else WARN,
-                    f"{model} not offered by Bifrost",
-                    fix="set BIFROST_MODEL / BIFROST_FALLBACK_MODEL or pull the model on the LLM VM",
+                    f"{model} not offered by the LLM gateway",
+                    fix="choose an offered model with `sift setup --llm`, or offer it on the gateway",
                 )
             )
     if cfg.model in models:
@@ -170,7 +182,7 @@ def _llm_checks(paths: Paths, env: Mapping[str, str], allow_http: bool) -> list[
                     "warm-up call",
                     FAIL,
                     redactor.scrub(str(exc)),
-                    fix="if this is a model-load error, update Ollama on the LLM VM and retry",
+                    fix="if this is a model-load error, check the model server behind the gateway and retry",
                 )
             )
     return out

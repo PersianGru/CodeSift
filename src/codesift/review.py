@@ -14,8 +14,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from codesift.detect import path_excluded
+from codesift.gateway import LLMError, ModelSession
 from codesift.gitutil import git
-from codesift.llm import LLMError, ModelSession
 from codesift.redact import Redactor
 from codesift.triage import InvalidAnswer, _extract_json, _norm
 

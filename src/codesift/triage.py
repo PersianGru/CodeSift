@@ -16,7 +16,7 @@ from typing import Any
 
 from codesift.config import LLMSettings
 from codesift.finding import Finding, Triage
-from codesift.llm import LLMError, ModelSession
+from codesift.gateway import LLMError, ModelSession
 from codesift.models import Severity
 from codesift.normalize import HIDDEN
 from codesift.redact import Redactor

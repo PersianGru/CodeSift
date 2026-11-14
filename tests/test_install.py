@@ -56,13 +56,14 @@ def test_copy_credentials(paths: Paths, tmp_path: Path, fake_secret: Callable[[s
     )
     log: list[str] = []
     inst.copy_credentials(paths, source, log)
-    text = paths.credentials_file.read_text(encoding="utf-8")
+    text = paths.gateway_file.read_text(encoding="utf-8")
     assert key in text and other not in text and "GITHUB_TOKEN" not in text
+    assert "CODESIFT_LLM_API_KEY" in text
     assert key not in " ".join(log)
     creds = load_credentials(paths, env={})
     assert creds is not None and creds.api_key == key
     if os.name != "nt":
-        assert paths.credentials_file.stat().st_mode & 0o777 == 0o600
+        assert paths.gateway_file.stat().st_mode & 0o777 == 0o600
 
 
 def test_copy_credentials_rejects_http(paths: Paths, tmp_path: Path) -> None:
@@ -72,7 +73,7 @@ def test_copy_credentials_rejects_http(paths: Paths, tmp_path: Path) -> None:
     )
     with pytest.raises(ConfigError):
         inst.copy_credentials(paths, source, [])
-    assert not paths.credentials_file.exists()
+    assert not paths.gateway_file.exists()
 
 
 def test_user_path_add_remove(paths: Paths, monkeypatch: pytest.MonkeyPatch) -> None:

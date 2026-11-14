@@ -1,4 +1,4 @@
-"""The only place CodeSift opens HTTP connections for install/update (Bifrost has its own client).
+"""The only place CodeSift opens HTTP connections for install/update (the LLM gateway has its own client).
 
 Every request is HTTPS to an allow-listed host, redirects included. Tokens travel in headers only.
 """
@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from codesift import __version__
 
-# Hosts used by `install` and `update` (RULES.md §3). Bifrost and osv/trivy traffic happen elsewhere.
+# Hosts used by `install` and `update` (RULES.md §3). LLM gateway and osv/trivy traffic happen elsewhere.
 ALLOWED_HOSTS = frozenset(
     {
         "api.github.com",

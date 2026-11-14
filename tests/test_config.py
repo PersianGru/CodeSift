@@ -115,7 +115,7 @@ def test_non_https_credentials_rejected(paths: Paths) -> None:
 
 
 def test_half_configured_credentials_rejected(paths: Paths) -> None:
-    with pytest.raises(ConfigError, match="BIFROST_BASE_URL is missing"):
+    with pytest.raises(ConfigError, match="base URL is missing"):
         load_credentials(paths, env={"BIFROST_API_KEY": "abcdef123"})
 
 

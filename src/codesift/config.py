@@ -1,8 +1,8 @@
-"""User config, Bifrost credentials and per-project config.
+"""User config, LLM gateway settings and per-project config.
 
 - User config:   <config dir>/config.toml       (LLM settings, threshold, parallelism, offline)
-- Credentials:   <config dir>/bifrost.env       (BIFROST_BASE_URL, BIFROST_API_KEY, ...)
-                 environment variables of the same name override the file.
+- LLM gateway:   <config dir>/gateway.env       (CODESIFT_LLM_BASE_URL, CODESIFT_LLM_API_KEY, ...)
+                 environment variables of the same name override the file (ADR-0014).
 - Project:       <project>/.codesift.toml       (optional, committed in the scanned repo)
 """
 
@@ -179,6 +179,23 @@ def load_user_config(paths: Paths) -> UserConfig:
 
 # ---------------------------------------------------------------- credentials
 
+# gateway.env keys (ADR-0014). Environment variables of the same names override the file.
+LLM_URL, LLM_KEY, LLM_MODEL, LLM_FALLBACK = (
+    "CODESIFT_LLM_BASE_URL",
+    "CODESIFT_LLM_API_KEY",
+    "CODESIFT_LLM_MODEL",
+    "CODESIFT_LLM_FALLBACK_MODEL",
+)
+LLM_ALLOW_HTTP = "CODESIFT_LLM_ALLOW_HTTP"  # the user's recorded "trusted network" answer
+GATEWAY_KEYS = (LLM_URL, LLM_KEY, LLM_MODEL, LLM_FALLBACK, LLM_ALLOW_HTTP)
+# 0.1.0 names, still read silently as a fallback and migrated by `sift setup`. Never shown to users.
+LEGACY_KEYS = {
+    LLM_URL: CRED_KEYS[0],
+    LLM_KEY: CRED_KEYS[1],
+    LLM_MODEL: CRED_KEYS[2],
+    LLM_FALLBACK: CRED_KEYS[3],
+}
+
 
 def _is_loopback(host: str) -> bool:
     if host == "localhost" or host.endswith(".localhost"):
@@ -189,82 +206,131 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def validate_base_url(url: str, allow_http_localhost: bool = False) -> str:
-    """Return the normalized URL or raise ConfigError. Only HTTPS is accepted; plain HTTP only for
-    loopback hosts with an explicit opt-in. Credentials, query strings and fragments are refused."""
+def is_private_lan(host: str) -> bool:
+    """RFC 1918 / ULA / link-local literal addresses (names are not trusted: DNS can point anywhere)."""
+    try:
+        ip = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return ip.is_private and not ip.is_loopback and not ip.is_unspecified and not ip.is_multicast
+
+
+def url_kind(url: str) -> str:
+    """'https', 'http-loopback' or 'http-lan'. Raises ConfigError for anything else."""
     url = url.strip()
     try:
         parts = urlsplit(url)
         host = parts.hostname or ""
         _ = parts.port  # raises on a bad port
     except ValueError:
-        raise ConfigError("BIFROST_BASE_URL is not a valid URL") from None
+        raise ConfigError("the LLM gateway base URL is not a valid URL") from None
     if not host:
-        raise ConfigError("BIFROST_BASE_URL has no host")
-    if parts.username or parts.password:
-        raise ConfigError("BIFROST_BASE_URL must not contain credentials (put the key in BIFROST_API_KEY)")
+        raise ConfigError("the LLM gateway base URL has no host")
+    if parts.username or parts.password or "@" in parts.netloc:
+        raise ConfigError("the LLM gateway base URL must not contain credentials (enter the key separately)")
     if parts.query or parts.fragment:
-        raise ConfigError("BIFROST_BASE_URL must not contain a query string or fragment")
+        raise ConfigError("the LLM gateway base URL must not contain a query string or fragment")
+    if any(c.isspace() or ord(c) < 32 for c in url):
+        raise ConfigError("the LLM gateway base URL contains whitespace or control characters")
     if parts.scheme == "https":
-        pass
-    elif parts.scheme == "http" and _is_loopback(host):
-        if not allow_http_localhost:
-            raise ConfigError(
-                "BIFROST_BASE_URL uses http:// - allowed only for localhost with allow_http_localhost = true"
-            )
-    else:
-        raise ConfigError(f"BIFROST_BASE_URL must use https:// (got {parts.scheme or 'no'} scheme)")
-    return url.rstrip("/")
+        return "https"
+    if parts.scheme == "http" and _is_loopback(host):
+        return "http-loopback"
+    if parts.scheme == "http" and is_private_lan(host):
+        return "http-lan"
+    if parts.scheme == "http":
+        raise ConfigError(
+            "the LLM gateway base URL must use https:// (plain http only for loopback or a private LAN "
+            "address on a trusted network)"
+        )
+    raise ConfigError(f"the LLM gateway base URL must use https:// (got {parts.scheme or 'no'} scheme)")
+
+
+def validate_base_url(url: str, allow_http_localhost: bool = False, allow_http_lan: bool = False) -> str:
+    """Return the normalized URL or raise ConfigError. HTTPS always; plain HTTP only for loopback
+    (`allow_http_localhost`, or the trusted-network answer) or a private LAN address (trusted-network
+    answer only). Credentials, query strings and fragments are refused."""
+    kind = url_kind(url)
+    if kind == "http-loopback" and not (allow_http_localhost or allow_http_lan):
+        raise ConfigError(
+            "the LLM gateway base URL uses http:// - allowed for localhost only after confirming a trusted "
+            "network in `sift setup --llm` (or allow_http_localhost = true)"
+        )
+    if kind == "http-lan" and not allow_http_lan:
+        raise ConfigError(
+            "the LLM gateway base URL uses http:// on the local network - allowed only after confirming a "
+            "trusted network in `sift setup --llm`"
+        )
+    return url.strip().rstrip("/")
+
+
+def _env_file(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    try:
+        return load_env_file(path)
+    except OSError as exc:
+        raise ConfigError(f"{path}: cannot read: {exc.strerror}") from None
+    except UnicodeDecodeError:
+        raise ConfigError(f"{path}: not valid UTF-8") from None
+
+
+def gateway_values(paths: Paths, env: Mapping[str, str] | None = None) -> tuple[dict[str, str], set[str]]:
+    """Resolve the gateway settings: env > gateway.env > legacy env names > legacy file.
+    Returns (values by new key name, sources used). Values are never logged."""
+    env = os.environ if env is None else env
+    current = _env_file(paths.gateway_file)
+    legacy_file = _env_file(paths.credentials_file)
+    values: dict[str, str] = {}
+    sources: set[str] = set()
+    for key in GATEWAY_KEYS:
+        legacy = LEGACY_KEYS.get(key)
+        for value, source in (
+            (env.get(key), "env"),
+            (current.get(key), "file"),
+            (env.get(legacy) if legacy else None, "env"),
+            (legacy_file.get(legacy) if legacy else None, "file"),
+        ):
+            if value is not None and (value != "" or (key == LLM_KEY and source == "file")):
+                values[key] = value
+                sources.add(source)
+                break
+    return values, sources
+
+
+def has_legacy_credentials(paths: Paths, env: Mapping[str, str] | None = None) -> bool:
+    env = os.environ if env is None else env
+    return paths.credentials_file.is_file() or any(env.get(k) for k in LEGACY_KEYS.values())
 
 
 def load_credentials(
     paths: Paths, env: Mapping[str, str] | None = None, allow_http_localhost: bool = False
 ) -> Credentials | None:
-    """Load Bifrost credentials. Returns None when no base URL / key is configured at all."""
-    env = os.environ if env is None else env
-    file_values: dict[str, str] = {}
-    if paths.credentials_file.is_file():
-        try:
-            file_values = load_env_file(paths.credentials_file)
-        except OSError as exc:
-            raise ConfigError(f"{paths.credentials_file}: cannot read: {exc.strerror}") from None
-        except UnicodeDecodeError:
-            raise ConfigError(f"{paths.credentials_file}: not valid UTF-8") from None
-
-    sources: set[str] = set()
-    values: dict[str, str] = {}
-    for key in ("BIFROST_BASE_URL", "BIFROST_API_KEY"):
-        if env.get(key):
-            values[key] = env[key]
-            sources.add("env")
-        elif file_values.get(key):
-            values[key] = file_values[key]
-            sources.add("file")
-
-    if not values:
+    """Load the LLM gateway settings. Returns None when no base URL / key is configured at all.
+    An empty API key is allowed (some local gateways need none)."""
+    values, sources = gateway_values(paths, env)
+    url, key = values.get(LLM_URL), values.get(LLM_KEY)
+    if url is None and not key:
         return None
-    if "BIFROST_BASE_URL" not in values:
-        raise ConfigError("BIFROST_API_KEY is set but BIFROST_BASE_URL is missing")
-    if "BIFROST_API_KEY" not in values:
-        raise ConfigError("BIFROST_BASE_URL is set but BIFROST_API_KEY is missing")
-    url = validate_base_url(values["BIFROST_BASE_URL"], allow_http_localhost)
-    return Credentials(base_url=url, api_key=values["BIFROST_API_KEY"], source="+".join(sorted(sources)))
+    if url is None:
+        raise ConfigError(
+            "an LLM gateway API key is set but the base URL is missing - run `sift setup --llm`"
+        )
+    allow_lan = values.get(LLM_ALLOW_HTTP, "").strip().lower() in ("1", "true", "yes")
+    url = validate_base_url(url, allow_http_localhost, allow_lan)
+    return Credentials(base_url=url, api_key=key or "", source="+".join(sorted(sources)))
 
 
 def model_overrides(paths: Paths, env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """BIFROST_MODEL / BIFROST_FALLBACK_MODEL from env or the credentials file (non-secret)."""
-    env = os.environ if env is None else env
-    file_values: dict[str, str] = {}
-    if paths.credentials_file.is_file():
-        try:
-            file_values = load_env_file(paths.credentials_file)
-        except (OSError, UnicodeDecodeError):
-            file_values = {}
+    """Model ids from env or the gateway settings (non-secret)."""
+    try:
+        values, _ = gateway_values(paths, env)
+    except ConfigError:
+        return {}
     result: dict[str, str] = {}
-    for key, name in (("BIFROST_MODEL", "model"), ("BIFROST_FALLBACK_MODEL", "fallback_model")):
-        value = env.get(key) or file_values.get(key)
-        if value:
-            result[name] = value
+    for key, name in ((LLM_MODEL, "model"), (LLM_FALLBACK, "fallback_model")):
+        if values.get(key):
+            result[name] = values[key]
     return result
 
 

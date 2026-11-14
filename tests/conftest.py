@@ -43,7 +43,7 @@ class NetworkBlocked(RuntimeError):
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests never touch the real network: any non-loopback connect fails loudly. Loopback stays
-    open for the in-process mock Bifrost server."""
+    open for the in-process mock LLM gateway."""
     orig_connect = socket.socket.connect
     orig_create = socket.create_connection
 

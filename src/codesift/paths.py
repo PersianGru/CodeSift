@@ -51,7 +51,40 @@ class Paths:
 
     @property
     def credentials_file(self) -> Path:
+        """0.1.0 credentials file: read only as a fallback and migrated by `sift setup` (ADR-0014)."""
         return self.config / "bifrost.env"
+
+    @property
+    def gateway_file(self) -> Path:
+        return self.config / "gateway.env"
+
+    @property
+    def anthropic_file(self) -> Path:
+        return self.config / "anthropic.env"
+
+    @property
+    def vm_file(self) -> Path:
+        return self.config / "vm.toml"
+
+    @property
+    def fix_file(self) -> Path:
+        return self.config / "fix.toml"
+
+    @property
+    def consent_file(self) -> Path:
+        return self.config / "consent.json"
+
+    @property
+    def keys_dir(self) -> Path:
+        return self.config / "keys"
+
+    @property
+    def vm_known_hosts(self) -> Path:
+        return self.config / "vm_known_hosts"
+
+    @property
+    def validate_runs(self) -> Path:
+        return self.runs / "validate"
 
     @property
     def skill_file(self) -> Path:
