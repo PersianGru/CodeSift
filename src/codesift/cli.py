@@ -228,6 +228,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_setup(sub)
     _add_vm(sub)
     _add_validate(sub)
+    p = sub.add_parser(
+        "ui",
+        help="local web UI: the living city + a plain dashboard (127.0.0.1 only, token-protected)",
+        description="Serves a local web UI on 127.0.0.1 with a one-time token URL. No external requests. "
+        "Review decisions are recorded in the run folder; patches are never applied.",
+    )
+    src = p.add_mutually_exclusive_group()
+    src.add_argument("--run", metavar="DIR", help="replay a past run folder (with events.jsonl)")
+    src.add_argument("--demo", action="store_true", help="a synthetic run: no scan, no VM, no model")
+    p.add_argument("--port", type=_positive_int, metavar="N", help="port (default: random)")
+    p.add_argument("--open", action="store_true", help="open the browser")
+    p.add_argument("--ci", action="store_true", help="default to the plain dashboard")
 
     p = sub.add_parser("report", help="re-print the latest summary for the current project")
     p.add_argument("--last", action="store_true", help="the latest run (default)")
@@ -580,6 +592,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_setup(args)
     if args.command == "vm":
         return cmd_vm(args)
+    if args.command == "ui":
+        from codesift.ui.server import replay_dir, run_ui
+        from codesift.ui.state import DemoRun, Runs, StateError
+
+        try:
+            runs = Runs(get_paths(), replay_dir=replay_dir(args.run) if args.run else None)
+        except StateError as exc:
+            print(f"sift ui: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        if args.demo:
+            runs.demo = DemoRun()
+        return run_ui(runs, port=args.port or 0, open_browser=args.open, ci=args.ci)
     if args.command == "fix":
         import os
 

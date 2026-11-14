@@ -22,7 +22,7 @@ sift = "codesift.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-codesift = ["py.typed", "vm/codesift-gate.sh"]
+codesift = ["py.typed", "vm/codesift-gate.sh", "ui/static/*.html", "ui/static/*.css", "ui/static/*.js", "ui/static/vendor/*"]
 
 [tool.black]
 line-length = 110
