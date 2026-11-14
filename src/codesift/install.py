@@ -4,7 +4,8 @@ install:  venv + hashed Python scanners, verified binaries, rules, package snaps
           Claude Code skill, default config.toml. Optional, only on explicit flags (the install
           scripts ask first): copy LLM gateway settings (user-only permissions) and add the shim
           folder to the user PATH (Windows).
-uninstall: removes what install created; runs/ and config/ (credentials) only with --purge.
+uninstall: removes what install created; runs/ and config/ (gateway/Claude keys, VM key, vm.toml,
+           fix.toml, consent) only with --purge.
 """
 
 from __future__ import annotations
@@ -348,6 +349,7 @@ def uninstall(paths: Paths, *, purge: bool = False) -> list[str]:
         PY_LOCK_NAME,
         "tools.lock.prev.json",
         "state.json",
+        "vm-selftest.json",
     ):
         target = paths.data / name
         if target.is_dir():

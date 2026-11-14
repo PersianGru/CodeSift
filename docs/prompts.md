@@ -232,3 +232,24 @@ PHASE C - close out (after my answers)
 8. Write the PR description (fixed, accepted, my follow-ups, not covered) to TRIAGE_DIR/pr.md
    and show it to me. Ask before pushing.
 ```
+
+## 3. Fix with proof (0.2.0: `sift fix` / `sift validate`)
+
+Use this instead of 2A when `sift setup` has a sandbox VM and fixer backends. The assistant never
+applies a patch or runs project code locally; CodeSift's sandbox and gates decide.
+
+```
+Run `sift doctor`. If the LLM gateway, sandbox VM or fixers are not configured, stop and ask me to
+run `sift setup` (never type or print credentials).
+
+1. `sift scan` (background, long timeout); read only the printed summary.md.
+2. `sift fix --dry-run`; show me the plan: findings, PoCs available or not, backends and what each
+   sends where. Wait for my OK.
+3. `sift fix` with the scope I approve (e.g. `--finding F001,F004`, `--budget-minutes 30`).
+4. Read fix-report.md. For each finding report the outcome as CodeSift states it:
+   fixed_verified / fixed_unproven (say "no PoC or tests") / rejected_* (one line why) /
+   inconclusive (never call it safe) / budget_exhausted.
+5. Show me each fixed_* patch diff. Apply one only when I say so (`git apply <patch>` on a branch),
+   then run `sift validate` and report its outcome.
+Never: apply/merge/push without my OK, `--no-verify`, edit the baseline, run PoCs locally.
+```

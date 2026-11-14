@@ -41,8 +41,12 @@ Start with `sift scan` and read the printed summary; run `sift doctor` if anythi
 """
 
 EPILOG = """\
-exit codes: 0 nothing at/above threshold, 1 findings at/above threshold,
-            2 tool/config error, 3 LLM unavailable (only with --require-llm)
+first time: `sift setup` (LLM gateway, sandbox VM, fixers), then `sift scan`.
+
+exit codes (scan): 0 nothing at/above threshold, 1 findings at/above threshold,
+                   2 tool/config error, 3 LLM unavailable (only with --require-llm)
+exit codes (validate/fix): 0 all fixed_verified, 1 some not verified,
+                   2 config/tool/sandbox error, 4 budget exhausted
 """
 
 SEVERITIES = [s.label for s in Severity]

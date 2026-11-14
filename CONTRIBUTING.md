@@ -28,8 +28,12 @@ All four must be clean before a commit. `black` line length is 110; `mypy` is `-
 - Tests never touch the real network; offline tests block sockets.
 - Real decisions get an ADR (`docs/decisions/ADR-NNNN-title.md`); user-visible changes go in
   `CHANGELOG.md`.
-- Never commit credentials, venvs, caches or scan outputs. Keep your own `bifrost.env` outside the
+- Never commit credentials, venvs, caches or scan outputs. Keep your own `gateway.env` outside the
   repository (or in a git-ignored folder).
+- Never name a specific LLM gateway product in user-facing text (RULES.md rule 20).
+- Tests never contact a real VM: use `tests/fake_vm.py` (it also checks every command against the
+  gate's allow-list). The live test runs only with `CODESIFT_LIVE_VM=1`.
+- Untrusted code never runs locally, not even in tests; fixers in tests are fakes.
 
 ## Refreshing pinned tools (maintainers)
 
@@ -42,7 +46,7 @@ Review the diff of `tools.lock.json`, `requirements.lock` and `rules/` before co
 
 ## Re-evaluating the LLM
 
-After changing the triage prompt (bump `PROMPT_VERSION`), the models or Ollama, re-run
+After changing the triage prompt (bump `PROMPT_VERSION`), the models or the model server, re-run
 `python scripts/bakeoff.py` (needs gateway credentials) and update `docs/model-eval.md`. Never edit
 the corpus in a way that hints at the answer (file names, comments).
 

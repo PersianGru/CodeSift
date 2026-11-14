@@ -20,7 +20,16 @@ In scope: CodeSift's own code, installer, hook and skill, for example:
 - CodeSift writing into a scanned project without an explicit command;
 - network traffic outside the hosts listed in [RULES.md](RULES.md);
 - a downloaded tool running without its sha256 matching `tools.lock.json`;
-- a scanned (untrusted) repository making CodeSift run code or read files outside the project.
+- a scanned (untrusted) repository making CodeSift run code or read files outside the project;
+- untrusted code (project tests, PoCs, patched code) running on the host instead of the sandbox VM,
+  or a container escaping the job flags CodeSift sets (network, mounts, capabilities, user);
+- data from the VM being executed or interpreted on the host;
+- a patch being applied, merged or pushed without a person doing it;
+- the Claude backends being used without recorded consent, or receiving secrets;
+- `sift ui` being reachable from another host, or accepting a cross-site request.
+
+Out of scope as well: weaknesses of the sandbox VM's own kernel/runtime, and setups that skip the
+recommended forced-command gate (documented trade-off, see docs/vm-setup.md).
 
 Out of scope: vulnerabilities in the scanners themselves (gitleaks, osv-scanner, trivy, opengrep,
 ruff, bandit, zizmor, pip-audit, …) — please report those to their projects — and findings that a

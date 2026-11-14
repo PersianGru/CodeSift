@@ -4,6 +4,46 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-14
+
+Prove fixes, not just find problems. The scan commands behave as before. Design: ADR-0011..0016,
+[docs/threat-model.md](docs/threat-model.md).
+
+### Added
+
+- `sift setup`: a wizard for the LLM gateway (any OpenAI-compatible base URL, connection test), the
+  sandbox VM (dedicated SSH key, host key pinned after a typed `yes`) and the fixer backends (with
+  recorded consent). Also `--show`, `--reset` and a non-interactive mode where secrets come only from
+  environment variables.
+- Sandbox VM backend (`sift vm setup|doctor|status|reset|image|admin-script`):
+  - one hardened, network-less, read-only, non-root container per job, reached over the system `ssh`;
+  - a resource guard, label-only cleanup and an isolation self-test, with fail-closed behaviour;
+  - image pinning, plus an optional forced-command gate script for the VM admin.
+- `sift validate`: proves a working-tree change, a patch or a branch on a copy of the project, using
+  the patch policy, project tests, project PoCs and a re-scan. Exact outcomes and exit codes
+  0/1/2/4.
+- `sift fix`: fixer backends (the gateway model, the Claude CLI and the Claude API), with:
+  - an escalation ladder, budgets and a JSON edit protocol;
+  - mechanical feedback between attempts and an optional advisory `--review-patch`;
+  - `--dry-run` and `--json`, an audit log and the event log.
+- `sift ui`: a local token-protected web UI with a top-down neon "living city" (vendored three.js
+  r128) and a plain dashboard. Decisions are recorded; nothing is applied. `--demo` and `--run DIR`
+  replay runs.
+- `.codesift.toml`: new `[validate]`, `[validate.poc]` and `[ui.districts]` sections.
+- `sift doctor`: gateway, VM and fixer sections.
+
+### Changed
+
+- The LLM endpoint is now product-neutral: `gateway.env` with `CODESIFT_LLM_*` variables,
+  `GatewayClient` (the old class name remains as an alias), and an empty API key is allowed. 0.1.0
+  settings are still read and are migrated by `sift setup --llm`.
+- RULES.md: rules 1–3 rewritten for the new commands; rules 11–20 added.
+- Installers point to `sift setup`; `--purge` also removes the new settings, keys and consent.
+
+### Not included
+
+- Canned PoC probes and LLM-drafted PoCs (ADR-0016). Only project-supplied PoCs are supported.
+
 ## [0.1.0] - 2026-11-13
 
 First public release. MIT licence (the vendored opengrep rules keep their own licence); see

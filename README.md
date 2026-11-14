@@ -1,190 +1,219 @@
 # CodeSift
 
 CodeSift is one command that runs free, open-source security scanners (gitleaks, osv-scanner, trivy,
-opengrep, ruff/bandit, pip-audit, zizmor, …) on any code project, has a **local LLM** behind an
-OpenAI-compatible gateway (Bifrost in our setup) triage the findings, and writes a **short `summary.md`** that a person or an AI assistant can
-read cheaply. The expensive reviewer then only checks the serious items and the logic a pattern scanner
-cannot judge.
+opengrep, ruff/bandit, pip-audit, zizmor, …) on any code project, has a model behind **your
+OpenAI-compatible LLM gateway** triage the findings, and writes a **short `summary.md`** that a person
+or an AI assistant can read cheaply.
 
-> **Status: v0.1.0** (2026-11-13) — see [CHANGELOG.md](CHANGELOG.md) and the
-> [real-world check](docs/real-world-check.md). Known gaps: [below](#known-limits). MIT licence.
+Version 0.2.0 adds a second half: **prove fixes**. `sift fix` lets AI fixers (a model through your
+LLM gateway, the Claude CLI or the Claude API) propose patches. Then deterministic checks decide
+whether a patch works: a mechanical patch policy, your project's tests and proofs of concept run in a
+**disposable, network-less container on a separate sandbox VM**, and a re-scan. The output is a
+patch for you to review. Nothing is ever applied, merged or pushed automatically. `sift ui` shows
+runs as a neon "living city" or as a plain dashboard.
 
-What it will never do is listed in [RULES.md](RULES.md): it is read-only on the scanned code, never
-scans the network, and never prints a secret.
+> **Status: v0.2.0** (2026-11-14). See [CHANGELOG.md](CHANGELOG.md),
+> [docs/validate-implementation-report.md](docs/validate-implementation-report.md) and the
+> [known limits](#known-limits). MIT licence.
+
+What CodeSift never does is listed in [RULES.md](RULES.md):
+- It never modifies the scanned project.
+- It never scans the network.
+- It never runs untrusted code on your machine.
+- It never prints a secret.
+- It never lets a model decide that something is "fixed".
 
 ## Install
 
-Requires Python ≥ 3.11 and git. One line, Windows (PowerShell):
+Requires Python ≥ 3.11 and git (plus an OpenSSH client for the sandbox VM). Windows (PowerShell):
 
 ```powershell
-git clone --branch v0.1.0 https://github.com/PersianGru/CodeSift.git "$HOME\codesift-src"; & "$HOME\codesift-src\install.ps1"
+git clone --branch v0.2.0 https://github.com/PersianGru/CodeSift.git "$HOME\codesift-src"; & "$HOME\codesift-src\install.ps1"
 ```
 
 Linux / macOS:
 
 ```bash
-git clone --branch v0.1.0 https://github.com/PersianGru/CodeSift.git ~/codesift-src && ~/codesift-src/install.sh
+git clone --branch v0.2.0 https://github.com/PersianGru/CodeSift.git ~/codesift-src && ~/codesift-src/install.sh
 ```
 
-Or, from a checkout of this repository:
+The installer does the following:
+- Creates the venv and installs the hashed Python scanners.
+- Downloads and checksum-verifies the four binaries, and installs the rules.
+- Copies the CodeSift package, including the UI assets and the sandbox gate script.
+- Writes the `sift` command shims and a default `config.toml`.
+- Installs the Claude Code skill `/sift`.
 
-```powershell
-# Windows (PowerShell) - asks before changing your user PATH or copying credentials
-./install.ps1
-```
-
-```bash
-# Linux / macOS - asks for the credentials file; prints a hint if ~/.local/bin is not on PATH
-./install.sh
-```
-
-Non-interactive: `./install.ps1 -AddToPath -CredentialsFrom path\to\bifrost.env -Yes` /
-`./install.sh --credentials-from path/to/bifrost.env --yes`.
-
-The installer creates the venv, installs the hashed Python scanners, downloads and checksum-verifies
-the four binaries, installs the rules, writes the `sift` command shims, a default `config.toml`,
-and the Claude Code skill `/sift` (`~/.claude/skills/sift/`, skipped if a different skill of
-that name exists). Credentials are copied only on request — only the `BIFROST_*` keys — and the copy
-is restricted to your account (Windows ACL / mode 600). No admin rights; nothing system-wide.
-
-Tested on Windows 11 (PowerShell 7) and Linux (`python:3.12-slim` container, install → doctor →
-scan → uninstall, peak memory ≈ 512 MB). macOS uses the same script but is untested.
-
-Re-run the installer after `git pull` to update CodeSift itself. Uninstall:
-`./install.ps1 -Uninstall` / `./install.sh --uninstall` (keeps runs and credentials; add
-`-Purge` / `--purge` to remove them too). Development setup: see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-### Pre-push hook (optional, per repository)
-
-```bash
-sift hook install     # in the repository; status / uninstall likewise
-```
-
-Before each `git push` it runs `sift scan --fast --no-llm --since <remote commit>` (gitleaks on the
-pushed commits, code scanners on changed files, osv-scanner only if a manifest changed) and blocks
-the push only on **new high/critical** findings that are not in the baseline. An existing pre-push
-hook is kept as `pre-push.local` and runs first; `core.hooksPath` is respected. If CodeSift is missing
-or a scan fails, the hook warns and lets the push through. The owner's emergency escape hatch is
-`git push --no-verify` (assistants never use it).
+No admin rights are needed and nothing is installed system-wide. Re-run the installer after
+`git pull` to update. To uninstall, run `./install.ps1 -Uninstall` or `./install.sh --uninstall`.
+That keeps runs, settings and keys; add `-Purge` / `--purge` to remove them too.
 
 ## Quick start
 
 ```bash
-sift scan            # full run: scanners + LLM triage + summary.md
-sift scan --no-llm   # scanners only
-sift doctor          # what is installed / configured, with a fix for each problem
+sift setup               # once: LLM gateway, sandbox VM, fixer backends (secrets never shown)
+sift doctor              # what is installed / configured, with a fix for each problem
+sift scan                # scanners + LLM triage + summary.md
+sift fix --dry-run       # what would be fixed, and what would be sent where - contacts nothing
+sift fix                 # fixers propose patches, the sandbox and re-scan verify them
+sift ui                  # watch / review runs in the browser (127.0.0.1 only)
 ```
 
-In Claude Code, in any project, a new chat needs one line: **"run `/sift`"** (or "run
-`sift scan` and read the summary"). The skill tells the assistant the rest.
-For a full round, use the copy-paste prompts in [docs/prompts.md](docs/prompts.md): a scan chat
-(cheaper model) writes a `triage.md` hand-off, and a fix chat (stronger model) fixes on its own branch.
+`sift validate` proves your own change instead. By default that is the working tree diff against
+HEAD; `--patch FILE` or `--branch REF` validate something else.
 
-### What runs
+In Claude Code, one line in any project is enough: **"run `/sift`"**. The skill tells the assistant the
+rest, including the rules: never apply patches, never run PoCs locally, never print credentials.
 
-CodeSift detects what the project contains and runs only the scanners that apply:
+### `sift setup`
 
-| Scanner | Runs when | Covers |
-|---|---|---|
-| gitleaks | always | secrets in files and git history (unstaged, staged, commits) |
-| osv-scanner | lockfiles / manifests exist (skipped with `--offline`) | known-vulnerable dependencies (pip, npm/yarn/pnpm, composer, Go, …) |
-| opengrep | always | code patterns — security rules for the detected languages only |
-| trivy | Dockerfile / Kubernetes / Terraform / Helm files | misconfigurations |
-| ruff (`S`) + bandit | Python files | Python security issues |
-| zizmor | `.github/workflows/*.yml` | GitHub Actions security |
-| pip-audit, composer audit, govulncheck | only if enabled in `.codesift.toml` | extra dependency checks |
+`sift setup` is a calm wizard that asks one question at a time. You can re-run it at any time:
+current values are shown with secrets masked, and Enter keeps them. `--llm`, `--vm` and `--fixers`
+run a single part, `--show` prints the masked state, and `--reset PART` removes a part's files.
+`--non-interactive` reads its answers from flags; secrets only ever come from environment variables.
 
-Never scanned: `node_modules`, `vendor`, virtualenvs, build output and the project's `exclude` globs.
-Code-pattern scanners (opengrep, ruff, bandit) also skip test directories and test files; secret,
-dependency and config scanners still scan them. Severity mapping, dedupe and fingerprints:
-[docs/severity.md](docs/severity.md).
+1. **LLM gateway**: any OpenAI-compatible base URL.
+   - It must be `https://`. Plain `http://` is accepted only for loopback or a private LAN address,
+     after you confirm the network is trusted.
+   - The API key is entered as hidden input and may be empty.
+   - Model ids are free text.
+   - The connection test reports reachability, HTTP status, the number of models and latency.
+2. **Sandbox VM**: host, port, an unprivileged user, Docker or Podman, and resource caps.
+   - It generates a dedicated ed25519 key, or uses a key path you give it.
+   - It **pins the VM's host key** only after you type `yes` to its fingerprint.
+   - Passwords are never stored.
+3. **Fixers**: the gateway model, the Claude CLI and the Claude API, with one honest line each about
+   what leaves the machine. The Claude backends stay unusable until your consent is recorded.
 
-### LLM triage
+### What runs where
 
-After the scanners, each medium-or-higher finding (highest first, max 60 per run) goes to the local
-LLM through Bifrost, one request at a time. The model answers `likely_real`, `likely_false_positive`
-or `unsure` with a two-sentence reason, a quoted line (checked against the code — invented quotes are
-rejected) and a short fix. The verdict is shown in `summary.md`; it never changes a severity or hides
-a finding, and high/critical findings are always marked **needs review**.
+| Work | Where |
+|---|---|
+| Scanners, re-scan | this machine, read-only, static |
+| Project tests, proofs of concept, patched code | **only** in a disposable container on the sandbox VM: no network, read-only root, non-root, no capabilities, CPU/memory/pids/time/output caps |
+| Triage, gateway fixer | your LLM gateway (redacted excerpts) |
+| Claude API fixer | `api.anthropic.com` (redacted excerpts, only with consent) |
+| Claude CLI fixer | a copy of the project with secret files removed (only with consent) |
 
-Sent to the LLM: the finding's metadata and the flagged lines with ±30 lines of context (secrets
-masked). **Never sent:** secrets found by gitleaks, dependency advisories, whole files or
-repositories. Answers are cached, so re-runs only ask about new or changed findings. Without
-credentials, with `--no-llm` / `--fast`, or when the LLM is down, the report lists the findings
-untriaged and says why.
+If the sandbox is needed and is missing, or it fails its isolation self-test, the command refuses
+(exit 2). There is no local fallback. Details: [docs/validate-and-fix.md](docs/validate-and-fix.md),
+[docs/vm-setup.md](docs/vm-setup.md), [docs/threat-model.md](docs/threat-model.md).
 
-`sift scan --review` additionally sends the diff of changed files matching
-`review.critical_paths` (plus the optional `review.checklist`) and lists concrete issues in a
-separate "AI logic review — unverified" section. Design: [ADR-0007](docs/decisions/ADR-0007-llm-triage.md).
-The review is slow by nature: the model reasons for about 6 minutes per 400 lines on the current VM
-(answers are streamed so the gateway does not time out, [ADR-0010](docs/decisions/ADR-0010-streaming-and-review-budget.md)).
-It stops after `--review-budget` minutes (default 45) and lists the files it did not get to.
-`--critical <glob>` (repeatable), `--checklist <file>` and `--review-all` (all critical files, not
-only changed ones) override the project config for one run.
+### Outcomes
 
-Real-world results and limits: [docs/real-world-check.md](docs/real-world-check.md).
+Each finding ends with exactly one of these outcomes:
 
-Each run writes to the runs folder (never into the project): `summary.md` (≤ 150 lines, read this),
-`report.json` (all findings), `raw/` (each tool's output, secrets masked). The last 20 runs per
-project are kept. `sift report` re-prints the latest summary.
+| Outcome | Meaning |
+|---|---|
+| `fixed_verified` | All gates pass, including a PoC pair or the project tests |
+| `fixed_unproven` | Policy and re-scan pass, but there was no PoC and no tests (said explicitly) |
+| `rejected_policy` | The patch policy rejected the patch |
+| `rejected_tests` | The patch broke a test that passed before |
+| `rejected_rescan` | The finding is still reported, or a new one appeared |
+| `rejected_poc` | The PoC still reproduces after the patch |
+| `inconclusive` | The PoC did not reproduce on the baseline. This is never "safe" |
+| `fixer_failed` | No fixer produced a usable patch |
+| `budget_exhausted` | The token or time budget ran out; the report is still written |
+
+A gate that could not run is reported as "unavailable", never as a pass. The patch policy rejects a
+patch that does any of the following:
+- edits tests, lockfiles, CI, scanner config, baselines or hooks;
+- adds suppression comments;
+- touches other files, or is too large;
+- deletes the vulnerable code without replacing it;
+- only changes whitespace or comments.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `sift setup [--llm\|--vm\|--fixers] [--show] [--reset PART] [--non-interactive …]` | configure gateway, sandbox VM and fixers |
 | `sift scan [PATH]` | detect → scanners → normalize/dedupe → baseline → LLM triage → report |
-| `sift scan --fast` | scanners only, changed files, no LLM (used by the pre-push hook) |
-| `sift scan --review` | plus an LLM logic review of the project's critical code |
+| `sift validate [PATH] [--patch FILE \| --branch REF] [--finding IDS] [--json]` | prove a change on a copy, in the sandbox |
+| `sift fix [PATH] [--finding IDS] [--min-severity L] [--max-findings N] [--backend B] [--poc none\|project] [--review-patch] [--dry-run] [--json] [--budget-tokens N] [--budget-minutes N]` | AI fixers + deterministic gates; output is a patch |
+| `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI (living city + plain dashboard) |
+| `sift vm setup \| doctor \| status \| reset \| image pull\|build \| admin-script` | sandbox VM management |
 | `sift report --last` | re-print the latest summary |
-| `sift baseline accept <ID…> --reason "…" [--expires YYYY-MM-DD]` / `list` / `prune` | accepted findings |
-| `sift init` | write a commented `.codesift.toml` |
+| `sift baseline accept <ID…> --reason "…"` / `list` / `prune` | accepted findings |
+| `sift init` | write a commented `.codesift.toml` (now with `[validate]`) |
 | `sift hook install` / `uninstall` / `status` | git pre-push hook |
 | `sift update [--apply] [--rollback]` | check / apply tool updates (7-day cooldown) |
-| `sift doctor` | health check; never shows secret values |
+| `sift doctor` | health check (gateway, VM, fixers included); never shows secret values |
 | `sift install` / `uninstall` | manage the installation |
 
-Scan flags: `--no-llm`, `--require-llm`, `--offline`, `--only/--skip <tools>`, `--threshold <sev>`,
-`--since <git-ref>`, `--json`, `--max-llm <n>`, `--verbose`; for `--review`: `--critical <glob>`,
-`--checklist <file>`, `--review-all`, `--review-budget <minutes>`.
+Exit codes:
 
-Exit codes: `0` nothing at/above threshold · `1` findings at/above threshold · `2` tool/config error ·
-`3` LLM unavailable (only with `--require-llm`).
+| Command | Codes |
+|---|---|
+| `scan` | `0` nothing at or above the threshold · `1` findings at or above it · `2` tool/config error · `3` LLM unavailable (only with `--require-llm`) |
+| `validate` / `fix` | `0` everything `fixed_verified` · `1` some finding not verified · `2` config/tool/sandbox error · `4` budget exhausted |
+
+### LLM triage (scan)
+
+After the scanners run, each medium-or-higher finding goes to the model through your gateway, one
+request at a time (max 60 per run). The model answers `likely_real`, `likely_false_positive` or
+`unsure` with:
+- a reason;
+- a quoted line, checked against the code;
+- a short fix suggestion.
+
+The verdict never changes a severity or hides a finding. Only the finding's metadata and its flagged
+lines with context are sent, and secrets are masked. `sift scan --review` adds an "AI logic review —
+unverified" section for critical code. Design: [ADR-0007](docs/decisions/ADR-0007-llm-triage.md).
 
 ## Where things live
 
 | Item | Windows | Linux / macOS |
 |---|---|---|
 | venv + package | `%USERPROFILE%\.codesift\venv` | `~/.local/share/codesift/venv` |
-| scanner binaries | `%USERPROFILE%\.codesift\tools\<name>\<version>\` | `~/.local/share/codesift/tools/…` |
-| command shim | `%USERPROFILE%\.codesift\bin\sift.cmd` | `~/.local/bin/sift` |
-| config | `%USERPROFILE%\.codesift\config\config.toml` | `~/.config/codesift/config.toml` |
-| credentials | `%USERPROFILE%\.codesift\config\bifrost.env` | `~/.config/codesift/bifrost.env` (mode 600) |
-| reports | `%USERPROFILE%\.codesift\runs\<project>\<timestamp>\` | `~/.cache/codesift/runs/…` |
+| config, keys, settings | `%USERPROFILE%\.codesift\config\` | `~/.config/codesift/` |
+| reports, fix runs | `%USERPROFILE%\.codesift\runs\` | `~/.cache/codesift/runs/` |
 | Claude skill | `%USERPROFILE%\.claude\skills\sift\SKILL.md` | `~/.claude/skills/sift/SKILL.md` |
 
-`CODESIFT_HOME` overrides the data/runs/shim root, `CODESIFT_CONFIG` the config dir.
-Windows deliberately avoids `AppData`: packaged (MSIX) desktop apps redirect writes there into a
-private per-app folder that other terminals cannot see ([ADR-0002](docs/decisions/ADR-0002-user-level-locations.md)).
+Config files are all owner-only: Windows ACL, or mode 600 elsewhere.
 
-### Credentials — `bifrost.env`
+| File | Contents |
+|---|---|
+| `config.toml` | user settings |
+| `gateway.env` | `CODESIFT_LLM_BASE_URL`, `CODESIFT_LLM_API_KEY`, `CODESIFT_LLM_MODEL`, `CODESIFT_LLM_FALLBACK_MODEL` |
+| `anthropic.env` | Claude API key (only if enabled) |
+| `vm.toml` | sandbox VM settings |
+| `fix.toml` | fixer backends, escalation, budgets |
+| `consent.json` | recorded consent for the external backends |
+| `keys/` | the sandbox SSH key pair |
+| `vm_known_hosts` | the pinned VM host key |
 
-```
-BIFROST_BASE_URL=https://<gateway>/v1
-BIFROST_API_KEY=<secret>
-BIFROST_MODEL=ollama/qwen3.8:27b-mtp-q4_K_M        # optional
-BIFROST_FALLBACK_MODEL=ollama/qwen3-coder:30b      # optional
-```
+Environment variables of the same names override the files. Settings from 0.1.0 are still read and
+are migrated by `sift setup --llm`. `CODESIFT_HOME` and `CODESIFT_CONFIG` override the folders
+([ADR-0002](docs/decisions/ADR-0002-user-level-locations.md)).
 
-Any OpenAI-compatible endpoint works (Bifrost, LiteLLM, Ollama's own `/v1`, …) as long as it is
-served over HTTPS; the variable names just say `BIFROST`. Environment variables of the same name
-override the file. Only `https://` URLs are accepted
-(`http://localhost` only with `allow_http_localhost = true` in `config.toml`). Without credentials,
-scans still run and the report says triage was skipped.
+### Project config: `.codesift.toml` (optional, committed)
 
-### Project config — `.codesift.toml` (optional, committed)
+Created by `sift init`. It holds:
+- exclude globs, extra rule dirs, the threshold, scanners on/off;
+- critical-code globs and a checklist for `--review`;
+- `[validate]`: the test command, sandbox image, timeout, `never_send` globs, `allowed_fix_paths`
+  and `max_patch_lines`;
+- `[validate.poc]`: PoC commands per CWE (exit 0 = reproduced);
+- `[ui.districts]`: path prefixes for the city's districts.
 
-Created by `sift init`: exclude globs, extra rule dirs, threshold, scanners on/off, "critical code"
-globs and a checklist file for `--review`. Accepted findings live in `.codesift-baseline.json`.
+Accepted findings live in `.codesift-baseline.json`.
+
+## What goes over the network
+
+Only these destinations, each only when it is configured:
+
+| Destination | When |
+|---|---|
+| Your LLM gateway URL | triage, fixer |
+| The sandbox VM, over SSH | `validate`, `fix`, `vm` |
+| `api.anthropic.com` | only for the consented Claude API fixer |
+| GitHub releases and PyPI | `install` and `update` only |
+| `api.osv.dev` | package names and versions, never code |
+| trivy's check bundle | misconfiguration checks |
+
+`--offline` leaves only a loopback/LAN gateway you configured, plus the VM. `sift ui` makes no
+external requests, and three.js is vendored with a recorded sha256.
 
 ## Pinned tools and updates
 
@@ -197,93 +226,57 @@ globs and a checklist file for `--review`. Accepted findings live in `.codesift-
 | ruff / bandit / pip-audit / zizmor | 0.17.3 / 1.9.4 / 2.10.1 / 1.32.0 | `requirements.lock`, every wheel hash |
 | opengrep rules | `opengrep/opengrep-rules@f1d2b562` (archived) | tree sha256 in the lock |
 
-Exact versions, URLs and hashes: [`tools.lock.json`](tools.lock.json), [`requirements.lock`](requirements.lock).
-New releases are only picked up after a **7-day cooldown** and only if no published advisory affects
-them. `sift update` prints current → latest; `sift update --apply` downloads, verifies,
-self-tests and switches (previous versions are kept); `sift update --rollback` switches back.
-Binaries are checked against their recorded sha256 **every time before they run**.
-
-Without a token GitHub allows 60 API requests per hour; `update` needs about 15. If you hit the limit,
-wait, or export a read-only `GITHUB_TOKEN` (never stored by CodeSift).
-
-## What goes over the network
-
-Only: the Bifrost URL (triage), GitHub releases / `api.github.com` and PyPI (`install`, `update` only),
-`api.osv.dev` (package names + versions, never code), trivy's check bundle. `--offline` leaves only
-Bifrost; `--no-llm` removes Bifrost. Nothing is ever sent to the scanned project's own services.
+New releases are picked up only after a **7-day cooldown**, and only if no advisory affects them.
+Binaries are re-verified before every run. See [`tools.lock.json`](tools.lock.json).
 
 ## Troubleshooting
 
-Run `sift doctor`. Every failing check prints a fix. Common cases:
+Run `sift doctor`; every failing check prints a fix. Common cases:
 
-- **"BIFROST_BASE_URL must use https://"** — fix the URL in `bifrost.env`.
-- **`sift doctor`** checks Bifrost `/models`, both models and a warm-up call (`--no-llm` skips it).
-- **Triage empty / slow first call** — the LLM VM is loading the model (30–65 s cold start). If calls
-  fail with model-load errors, update Ollama on the LLM VM.
+| Problem | Fix |
+|---|---|
+| The gateway URL is refused | Use `https://`, or confirm a trusted network for a LAN/loopback `http://` URL in `sift setup --llm` |
+| The sandbox refuses | Run `sift vm doctor`. It runs the isolation self-test and prints a fix per item |
+| The image is not pinned | Run `sift vm image pull <ref>`. This uses the network on the VM |
+| The host key changed | Verify the VM, then re-pin it with `sift setup --vm` |
 
 ## Known limits
 
-- **Speed**: LLM triage takes up to 20 minutes on a first run (later runs use a cache), and
-  `--review` takes about 3–6 minutes per 400 lines of critical code on the current LLM VM.
-  `--no-llm` / `--fast` give scanner results in about a minute.
-- **Coverage**: osv-scanner needs exact versions. Python projects with only `pyproject.toml` ranges
-  and no lockfile are not dependency-checked unless `pip-audit` is enabled (the summary warns). The
-  opt-in scanners (pip-audit, composer audit, govulncheck) were not exercised on a real project.
-- **Platforms**: tested on Windows 11 and a Linux container; macOS is untested.
-- **LLM**: verdicts are hints. The fallback model scored 63–68 % in the bake-off and is labelled as
-  weaker when used. The logic review found 1 real issue out of 5 on a real project, and it cannot
-  see guards that live in other files.
-- **Rules**: the vendored opengrep rules come from an archived repository and receive no further
-  updates.
+- **Speed**: LLM triage can take up to 20 minutes on a first run (later runs use a cache). A fix
+  attempt costs one model call plus sandbox jobs.
+- **PoCs**: only project-supplied PoC commands are supported ([ADR-0016](docs/decisions/ADR-0016-project-supplied-pocs-only.md)).
+  Without PoCs or tests, the best possible outcome is `fixed_unproven`.
+- **Sandbox**: membership in the docker group is root-equivalent on the VM. Use a lab VM and install
+  the forced-command gate (`sift vm admin-script`). Image pull and build use the network on the VM.
+- **Claude CLI**: it reads the filtered workspace and sends what it reads to Anthropic. It only runs
+  with your consent.
+- **Live VM**: the VM backend is tested against a simulated VM. Run `sift vm doctor` on your VM
+  before the first `fix`.
+- **Coverage, platforms, rules**: as in 0.1.0. osv-scanner needs exact versions. macOS is untested.
+  The vendored opengrep rules are archived.
 
 ## Built on
-
-CodeSift is glue: the detection work is done by these open-source projects, run as separate programs.
-Binaries are downloaded from each project's official GitHub release and checksum-verified; Python
-tools are installed from PyPI with every wheel hash pinned.
 
 | Project | Role in CodeSift | Licence |
 |---|---|---|
 | [gitleaks](https://github.com/gitleaks/gitleaks) | secrets in files and git history | MIT |
 | [osv-scanner](https://github.com/google/osv-scanner) + [OSV.dev](https://osv.dev) | known-vulnerable dependencies | Apache-2.0 |
 | [trivy](https://github.com/aquasecurity/trivy) | Dockerfile / Kubernetes / Terraform / Helm misconfigurations | Apache-2.0 |
-| [opengrep](https://github.com/opengrep/opengrep) | multi-language code patterns (open fork of the semgrep engine) | LGPL-2.1 |
-| [opengrep-rules](https://github.com/opengrep/opengrep-rules) | the vendored rule set opengrep runs | LGPL-2.1 + Commons Clause |
-| [ruff](https://github.com/astral-sh/ruff) (`S` rules) | Python security lint | MIT |
-| [bandit](https://github.com/PyCQA/bandit) | Python security issues | Apache-2.0 |
+| [opengrep](https://github.com/opengrep/opengrep) + [opengrep-rules](https://github.com/opengrep/opengrep-rules) | multi-language code patterns | LGPL-2.1 (+ Commons Clause for the rules) |
+| [ruff](https://github.com/astral-sh/ruff), [bandit](https://github.com/PyCQA/bandit) | Python security lint | MIT / Apache-2.0 |
 | [zizmor](https://github.com/zizmorcore/zizmor) | GitHub Actions workflow security | MIT |
-| [pip-audit](https://github.com/pypa/pip-audit) (opt-in) | Python dependency audit | Apache-2.0 |
-| [composer audit](https://getcomposer.org/doc/03-cli.md#audit) (opt-in) | PHP dependency audit | MIT |
-| [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) (opt-in) | Go vulnerability check | BSD-3-Clause |
-| [Ollama](https://github.com/ollama/ollama) + Qwen models | the local LLM for triage and review | MIT (Ollama); see each model's card |
-| [Bifrost](https://github.com/maximhq/bifrost) | OpenAI-compatible gateway in front of Ollama (any compatible endpoint works) | Apache-2.0 |
+| pip-audit, composer audit, govulncheck (opt-in) | extra dependency checks | Apache-2.0 / MIT / BSD-3-Clause |
+| [three.js](https://github.com/mrdoob/three.js) r128 (vendored) | the `sift ui` 3D city | MIT |
+| OpenSSH (system) | transport to the sandbox VM | BSD |
 
-CodeSift itself is Python with no runtime dependencies beyond the standard library.
-
-## How it was built and checked
-
-- **Design first**: ten short decision records in [docs/decisions/](docs/decisions/) — scope, install
-  locations, opengrep instead of semgrep, stdlib-only runtime, pinning and integrity, the scan
-  pipeline, LLM triage, model choice, hook and installer, streaming and the review budget.
-- **Supply chain**: every tool version pinned with its sha256 for four platforms, a 7-day cooldown
-  and an advisory check before any update, binaries re-verified before every run.
-- **Tests**: offline tests (sockets blocked) for every module, including a mock OpenAI-compatible
-  server that simulates slow, broken, streaming and hallucinating models; integration tests with the
-  real scanners on fixtures for Python, JS/TS, PHP, Go, Docker and GitHub workflows; CodeSift scans
-  itself clean as the last test. `mypy --strict`, ruff and black on everything.
-- **Model bake-off**: the triage prompt and both models were scored on a labelled corpus of 19
-  cases before the defaults were fixed ([docs/model-eval.md](docs/model-eval.md)).
-- **Real-world check**: five full runs against a ~560-file production monorepo, every medium+
-  finding checked by hand, and the fixes that came out of it
-  ([docs/real-world-check.md](docs/real-world-check.md)).
-- **Platforms**: Windows 11, and a clean Linux container (install → doctor → scan → uninstall).
+Any OpenAI-compatible LLM gateway works for triage and the gateway fixer. CodeSift itself is Python
+with no runtime dependencies beyond the standard library.
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) (tests, lint, conventions) and
-[docs/architecture.md](docs/architecture.md). Security problems: [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md). Report
+security problems as described in [SECURITY.md](SECURITY.md).
 
 ## Licence
 
-[MIT](LICENSE). The vendored opengrep rules keep their own licence
-([rules/LICENSE.opengrep-rules](rules/LICENSE.opengrep-rules)).
+[MIT](LICENSE). The vendored opengrep rules and three.js keep their own licences.

@@ -1,34 +1,38 @@
 ---
 name: sift
-description: Run a local security check (security scan / audit) of the current project with the sift CLI - free scanners plus local-LLM triage - and verify only the serious findings. Use when the user asks to security-check, scan, or audit this project or its changes.
+description: Run a local security check (security scan / audit) of the current project with the sift CLI - free scanners plus local-LLM triage - and verify only the serious findings. Use when the user asks to security-check, scan, or audit this project or its changes, or to fix and prove fixes for its findings.
 ---
 
 # CodeSift
 
 `sift` is a command installed on this machine. It scans the current project with open-source
-scanners, has a local LLM triage the findings, and writes a short `summary.md`. It is read-only on
-the project and never scans the network. Full rules: `sift --help` and the CodeSift repo's RULES.md.
+scanners, has a model behind the user's LLM gateway triage the findings, and writes a short
+`summary.md`. `sift fix` / `sift validate` propose and *prove* fixes on a copy of the project. Untrusted
+code runs only in a sandbox VM. Full rules: `sift --help` and the CodeSift repo's RULES.md.
 
 ## Workflow
 
-1. Run `sift scan` in the project root (add `--review` when the user asks for a deeper check or
-   when security-critical code changed). Run `sift doctor` **only** if a command failed, and
-   follow the fix it prints.
-   **It is slow**: the scanners take about a minute, LLM triage up to 20 minutes on first run
-   (re-runs use a cache), and `--review` about 3–6 minutes per 400 lines of critical code (it stops
-   after `--review-budget` minutes, default 45). Run it in the background or with a long command
-   timeout; never kill it after the default 2 minutes. `--no-llm` gives scanner results in about a
-   minute when the user is in a hurry.
-2. Read **only** the `summary.md` whose path the scan prints. Do not read raw outputs or the whole repo.
-3. For each high/critical item and each LLM-"unsure" item, open only the flagged lines (± some
-   context) and decide yourself whether it is real. The `LLM:` lines are a local model's opinion —
-   a hint, not a verdict; "likely false positive" on a high item still needs your check. Items in
-   "AI logic review — unverified" (from `--review`) need the same check before you report them.
-4. Report to the user: confirmed issues with a proposed fix, false positives with a one-line reason,
-   and what was not covered (skipped scanners, `⚠ not covered` warnings such as dependencies without a
-   lockfile, not-triaged items, files the review did not reach, errors). Offer fixes; apply them only
-   with the user's OK.
-5. Never edit `.codesift-baseline.json`, disable a scanner or lower a threshold without the user's
-   explicit OK. To accept a finding (with their OK):
-   `sift baseline accept <ID> --reason "…"`.
-6. Never print credentials or secret values. Never use `git push --no-verify`.
+1. If `sift doctor` reports the LLM gateway or the sandbox VM as not configured, ask the user to run
+   `sift setup` themselves (it asks for credentials with hidden input). Never type or print credentials.
+2. Run `sift scan` in the project root (add `--review` for a deeper check of critical code). It is
+   slow: run it in the background or with a long timeout; `--no-llm` gives scanner results in about
+   a minute.
+3. Read **only** the `summary.md` whose path the scan prints. For each high/critical item and each
+   "unsure" item, open only the flagged lines and decide yourself whether it is real. `LLM:` lines are
+   hints, not verdicts.
+4. To fix: first `sift fix --dry-run` and show the user the plan (findings, backends, what is sent
+   where). Run `sift fix` only with the user's OK. Read the printed `fix-report.md`.
+5. Report outcomes honestly: `fixed_verified` (proven by PoC/tests + re-scan), `fixed_unproven` (no
+   PoC/tests - say so), `rejected_*`, `inconclusive` (never "safe"), `budget_exhausted`.
+6. Patches live in the run folder. Show the diff; apply one **only** with the user's explicit OK
+   (e.g. `git apply <file>`), then suggest re-running `sift validate`.
+
+## Never
+
+- Never apply, merge or push a patch without the user's explicit OK; never use `--no-verify`.
+- Never run a PoC, exploit or the project's tests on this machine to "check" a fix - that is the
+  sandbox's job (`sift validate`).
+- Never edit `.codesift-baseline.json`, disable a scanner or lower a threshold without the user's OK.
+  To accept a finding (with their OK): `sift baseline accept <ID> --reason "…"`.
+- Never print credentials or secret values, and never pass them on a command line.
+- Never enable a Claude backend or record consent on the user's behalf - that is `sift setup --fixers`.
