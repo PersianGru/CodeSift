@@ -143,7 +143,9 @@ U='{user}'
 if ! id "$U" >/dev/null 2>&1; then
     adduser -D -s /bin/sh "$U" 2>/dev/null || useradd -m -s /bin/sh "$U"
 fi
-passwd -l "$U" >/dev/null 2>&1 || true
+#    '*' = no password can ever match. Not '!' (locked): sshd without PAM (Alpine) refuses key logins
+#    for locked accounts.
+printf '%s:*\\n' "$U" | chpasswd -e
 
 # 2. Container runtime access.
 #    NOTE: membership in the docker group is root-equivalent on this VM. The gate below limits what
