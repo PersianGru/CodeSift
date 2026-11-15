@@ -58,6 +58,19 @@ def test_vm_step_requires_literal_yes_to_pin(paths: Paths, fake_ssh: list[str]) 
     assert "not pinned" in script.text
 
 
+def test_vm_step_reuses_key_from_stopped_setup(paths: Paths, fake_ssh: list[str]) -> None:
+    """A setup that generated the key but stopped before saving must not fail on the next run."""
+    paths.keys_dir.mkdir(parents=True, exist_ok=True)
+    (paths.keys_dir / vm_keys.KEY_NAME).write_text("PRIVATE-KEY-MATERIAL", encoding="utf-8")
+    (paths.keys_dir / (vm_keys.KEY_NAME + ".pub")).write_text(PUB + chr(10), encoding="utf-8")
+    answers = ["192.168.0.50", "22", "codesift", "docker", "", "y", "y", "yes", "n"]
+    script = Script(answers, [])
+    assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 0
+    assert "keygen" not in fake_ssh
+    assert "Keep the current SSH key" in script.text and PUB in script.text
+    assert Path(load_vm_config(paths).key_path) == paths.keys_dir / vm_keys.KEY_NAME
+
+
 def test_vm_step_existing_key_path(paths: Paths, fake_ssh: list[str], tmp_path: Path) -> None:
     key = tmp_path / "my_key"
     key.write_text("SECRET-KEY", encoding="utf-8")
