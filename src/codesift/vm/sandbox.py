@@ -82,13 +82,15 @@ def wrapper_script(command: str, timeout_s: int, cap_bytes: int) -> str:
     fail = f"echo; echo {RC_MARKER}125; exit 0"
     unsafe = "'^/|(^|/)[.][.](/|$)'"
     return (
-        "umask 022; export HOME=/work; T=/work/.in.tar; L=/work/.list; "
+        "umask 022; export HOME=/work; T=/work/.in.tar; L=/work/.list; E=/work/.err; "
         f'cat > "$T" || {{ echo "{NOWRITE}"; {fail}; }}; '
-        f'tar -tf "$T" > "$L" 2>/dev/null || {{ echo "{REJECT_MARKER} unreadable input"; {fail}; }}; '
-        f'if grep -Eq {unsafe} "$L"; then echo "{REJECT_MARKER} unsafe path in input"; {fail}; fi; '
+        f'tar -tf "$T" > "$L" 2> "$E" || {{ echo "{REJECT_MARKER} unreadable input"; {fail}; }}; '
+        # busybox tar strips '../' while listing and only warns on stderr: any warning is a refusal.
+        f'if [ -s "$E" ] || grep -Eq {unsafe} "$L"; then '
+        f'echo "{REJECT_MARKER} unsafe path in input"; {fail}; fi; '
         'mkdir -p /work/src && tar -xf "$T" -C /work/src 2>/dev/null'
         f' || {{ echo "{REJECT_MARKER} extract failed"; {fail}; }}; '
-        'rm -f "$T" "$L"; cd /work/src || exit 0; '
+        'rm -f "$T" "$L" "$E"; cd /work/src || exit 0; '
         f"( timeout -s KILL {int(timeout_s)} sh -c {cmd}; echo $? > /tmp/.rc ) 2>&1"
         f" | head -c {int(cap_bytes)}; "
         f'echo; echo "{RC_MARKER}$(cat /tmp/.rc 2>/dev/null || echo 137)"'
