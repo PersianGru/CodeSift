@@ -22,6 +22,7 @@ from typing import IO, Protocol
 
 from codesift.vm import SandboxError
 from codesift.vm.config import VMConfig
+from codesift.vm.keys import KEY_NAME
 from codesift.vm.sshargs import ArgError, build_ssh_argv, validate_key_path
 
 MAX_STDERR = 64 * 1024
@@ -90,7 +91,10 @@ class SshTransport:
         self.ssh = exe
         self.cfg = cfg
         try:
-            self.key = validate_key_path(cfg.key_path, [keys_dir], user_supplied=cfg.key_user_supplied)
+            allowed = [keys_dir]
+            if Path(cfg.key_path).name == KEY_NAME:  # CodeSift's own key, kept in a folder the user chose
+                allowed.append(Path(cfg.key_path).parent)
+            self.key = validate_key_path(cfg.key_path, allowed, user_supplied=cfg.key_user_supplied)
         except ArgError as exc:
             raise SandboxError(f"SSH key: {exc}", fix="run `sift setup --vm`") from None
         self.known_hosts = Path(cfg.known_hosts_path)

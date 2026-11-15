@@ -637,3 +637,16 @@ def test_doctor_reports_vm_section(paths: Paths, monkeypatch: pytest.MonkeyPatch
     assert checks["VM host key"].status == FAIL  # fingerprint not recorded in this fake config
     assert checks["VM self-test"].status == TODO
     assert "private" not in repr(checks)
+
+
+def test_admin_script_is_idempotent_and_alpine_safe() -> None:
+    from codesift.vm.admin import admin_script
+    from codesift.vm.config import VMConfig
+
+    text = admin_script(VMConfig(host="vm", user="codesift"), PUBKEY)
+    assert "passwd -l" not in text and "chpasswd -e" in text  # locked accounts break key login on Alpine
+    assert 'grep -qxF "$KEYLINE"' in text  # the key is added once, however often it runs
+    assert "docker info" in text and "install_pkg docker" in text
+    assert "sshd -T" in text and "set -eu" in text
+    podman = admin_script(VMConfig(host="vm", user="codesift", runtime="podman"), PUBKEY)
+    assert "/etc/subuid" in podman and "docker" not in podman.split("# 3.")[0].split("# 2.")[1]

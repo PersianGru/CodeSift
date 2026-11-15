@@ -11,28 +11,55 @@ the [threat model](threat-model.md) first.
 - An SSH server, reachable from the developer's machine.
 - RAM: at least the job memory cap plus 256 MB free. One job runs at a time.
 
-## 1. Developer: `sift setup --vm`
+## 1. `sift setup --vm` does the whole setup
 
-`sift setup --vm` collects the host, port, user, runtime, image and limits, then:
+You answer a few questions, and CodeSift does the rest:
 
-1. Generates a dedicated ed25519 key. It prints the public key and the `authorized_keys` line.
-2. Fetches the VM's host key and shows its fingerprint. You compare it with
-   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VM, then type `yes` to pin it.
+| Question | Default |
+|---|---|
+| VM IP address or host name | - |
+| SSH port | 22 |
+| Pin the VM's host key? Type `yes` after comparing the fingerprint with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VM | - |
+| Admin user name on the VM | `root` |
+| Does the admin sign in with an SSH key or a password? | `key` if a usual key (`id_ed25519`, `id_ecdsa`, `id_rsa`) is in your SSH folder |
+| Path of the admin's private key (key only) | the key that was found |
+| Folder to keep CodeSift's own SSH key in | your SSH folder: `%USERPROFILE%\.ssh` on Windows, `~/.ssh` on macOS and Linux |
 
-From then on CodeSift connects only with `StrictHostKeyChecking=yes` against its own
-`vm_known_hosts`. If the key changes, it refuses to connect.
+Then CodeSift:
 
-## 2. VM admin: `sift vm admin-script`
+1. **Creates its own key** (`codesift_sandbox_ed25519` and `.pub`) in the chosen folder, or reuses it
+   if it is already there.
+2. **Logs in once as the admin** and runs the setup script below as root. If the admin is not root,
+   the script uses `sudo`, or `doas` on Alpine. A password, a key passphrase or the sudo password is
+   typed into ssh's or sudo's own prompt: **CodeSift never sees or stores it**. The admin key is only
+   passed to ssh as a path; it is never read. The login trusts only the host key you just pinned,
+   ignores your ssh config and forwards nothing.
+3. **Saves the settings** (`vm.toml`). From now on it uses only its own restricted key; the admin
+   login is not used again.
+4. **Pulls the sandbox image** and pins its id.
+5. **Runs the isolation self-test** (`sift vm doctor`) and prints the result.
 
-The developer runs `sift vm admin-script` and gives the printed script to the VM admin. CodeSift never
-runs this script itself. Review it, then run it as root. It does the following:
+The dedicated user is `codesift`, with Docker, the image `python:3.12-alpine` and safe limits (512 MB,
+1 CPU, 128 processes, 300 s per job). Running `sift setup --vm` again offers to only re-check the VM.
+Every connection uses `StrictHostKeyChecking=yes` against CodeSift's own `vm_known_hosts`; if the
+VM's host key changes, CodeSift refuses to connect.
 
-1. Creates the unprivileged user (no sudo, password locked).
-2. Adds the user to the `docker` group (Podman: see below).
+## 2. What the setup script does on the VM
+
+It is safe to run more than once; anything already in place is left as it is. To review it, or to
+run it by hand instead, print it with `sift vm admin-script`.
+
+1. Creates the unprivileged user `codesift`: no sudo, and no usable password (`*`, not a locked
+   `!`, because sshd without PAM, as on Alpine, refuses key logins for locked accounts).
+2. Makes sure Docker is installed and running, installing it with the VM's package manager (`apk`,
+   `apt-get`, `dnf`, `yum`, `zypper` or `pacman`) only if it is missing, and adds `codesift` to the
+   `docker` group. For Podman, see below.
 3. Installs `/usr/local/bin/codesift-gate`, the forced-command gate.
 4. Writes `/etc/codesift-gate.images` with the allowed image.
-5. Appends the key as `restrict,command="/usr/local/bin/codesift-gate" ssh-ed25519 …`, which means
+5. Adds CodeSift's key once, as `restrict,command="/usr/local/bin/codesift-gate" ssh-ed25519 …`:
    no port, agent or X11 forwarding and no pty.
+6. Warns if `sshd` has `AllowUsers` or `AllowGroups` that would keep `codesift` out. It never edits
+   the sshd configuration.
 
 **The gate** reads `SSH_ORIGINAL_COMMAND` and allows only these commands:
 - the exact `docker|podman run` job shape: `--rm -i --pull=never --network none --cap-drop ALL
@@ -48,7 +75,7 @@ Everything else exits 126.
 - **Without the gate**, the key can run any container command. Docker group membership is
   root-equivalent on the VM.
 
-The gate is optional in 0.2.0 and strongly recommended. The shipped gate equals
+`sift setup --vm` always installs the gate. The shipped gate equals
 `sift vm admin-script --gate-only`; its allow/deny table is tested.
 
 ## 3. Image

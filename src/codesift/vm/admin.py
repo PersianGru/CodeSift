@@ -124,33 +124,65 @@ def authorized_keys_line(pubkey: str, gate: bool = True) -> str:
 
 
 def admin_script(cfg: VMConfig, pubkey: str) -> str:
+    """The one-time VM setup, run as root: by `sift setup --vm` over the admin's own SSH login, or by
+    hand from `sift vm admin-script`. Idempotent: re-running it changes nothing that is already right."""
     user = validate_user(cfg.user)
     if not IMAGE_RE.match(cfg.image):
         raise SandboxError("invalid image reference")
     line = authorized_keys_line(pubkey)
-    if cfg.runtime == "docker":
-        runtime_line = 'addgroup "$U" docker 2>/dev/null || usermod -aG docker "$U"'
-    else:
-        runtime_line = '# podman: run rootless as "$U" (subuid/subgid entries needed) - see docs/vm-setup.md'
+    runtime_block = DOCKER_BLOCK if cfg.runtime == "docker" else PODMAN_BLOCK
+    # S608/B608 below: a shell script for the VM, not SQL ("update ... set" trips the SQL heuristic).
     return f"""#!/bin/sh
-# CodeSift sandbox - one-time setup for the VM administrator. REVIEW BEFORE RUNNING (as root).
-# CodeSift never runs this itself. It creates the unprivileged user '{user}', installs the
-# forced-command gate, and authorises CodeSift's key ONLY through that gate.
+# CodeSift sandbox - one-time setup of the VM, run as root. Safe to run again.
+# Creates the unprivileged user '{user}', makes sure the container runtime is installed and running,
+# installs the forced-command gate and authorises CodeSift's key ONLY through that gate.
 set -eu
 U='{user}'
+say() {{ printf 'codesift: %s\\n' "$*"; }}
 
-# 1. Dedicated user: no sudo, no password, login shell only through the gate.
-if ! id "$U" >/dev/null 2>&1; then
+# 0. Package manager (only used when something is missing).
+PKG=
+for p in apk apt-get dnf yum zypper pacman; do
+    if command -v "$p" >/dev/null 2>&1; then PKG=$p; break; fi
+done
+install_pkg() {{
+    say "installing $* with ${{PKG:-?}}"
+    case "$PKG" in
+        apk) apk add --no-cache "$@" ;;
+        apt-get)
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq && apt-get install -y -qq "$@" ;;
+        dnf) dnf install -y -q "$@" ;;
+        yum) yum install -y -q "$@" ;;
+        zypper) zypper --non-interactive install "$@" ;;
+        pacman) pacman -S --noconfirm --needed "$@" ;;
+        *) say "no known package manager - install $* yourself and run this again"; exit 4 ;;
+    esac
+}}
+start_service() {{
+    if command -v rc-service >/dev/null 2>&1; then
+        rc-update add "$1" default >/dev/null 2>&1 || true
+        rc-service "$1" start >/dev/null 2>&1 || true
+    elif command -v systemctl >/dev/null 2>&1; then
+        systemctl enable --now "$1" >/dev/null 2>&1 || true
+    else
+        service "$1" start >/dev/null 2>&1 || true
+    fi
+}}
+
+# 1. Dedicated user: no sudo, no usable password, login only with CodeSift's key through the gate.
+if id "$U" >/dev/null 2>&1; then
+    say "user $U exists"
+else
     adduser -D -s /bin/sh "$U" 2>/dev/null || useradd -m -s /bin/sh "$U"
+    say "created user $U"
 fi
 #    '*' = no password can ever match. Not '!' (locked): sshd without PAM (Alpine) refuses key logins
 #    for locked accounts.
 printf '%s:*\\n' "$U" | chpasswd -e
 
-# 2. Container runtime access.
-#    NOTE: membership in the docker group is root-equivalent on this VM. The gate below limits what
-#    CodeSift's key can run to the fixed, network-less job shape. Use a lab VM, never production.
-{runtime_line}
+# 2. Container runtime: installed, running, and usable by $U.
+{runtime_block.rstrip()}
 
 # 3. The gate (allow-list of exact commands; everything else exits {GATE_DENY_RC}).
 cat > {GATE_PATH} <<'CODESIFT_GATE'
@@ -158,17 +190,70 @@ cat > {GATE_PATH} <<'CODESIFT_GATE'
 CODESIFT_GATE
 chown root:root {GATE_PATH}
 chmod 0755 {GATE_PATH}
+say "gate installed at {GATE_PATH}"
 
-# 4. Optional: pin the images jobs may use.
+# 4. Pin the images jobs may use.
 printf '%s\\n' '{cfg.image}' > {GATE_IMAGES}
 chmod 0644 {GATE_IMAGES}
 
-# 5. Authorise CodeSift's key through the gate only (no forwarding, no pty).
+# 5. Authorise CodeSift's key through the gate only (no forwarding, no pty). Added once.
 H=$(getent passwd "$U" | cut -d: -f6)
 mkdir -p "$H/.ssh"
-printf '%s\\n' '{line}' >> "$H/.ssh/authorized_keys"
+touch "$H/.ssh/authorized_keys"
+KEYLINE='{line}'
+if grep -qxF "$KEYLINE" "$H/.ssh/authorized_keys"; then
+    say "key already authorised"
+else
+    printf '%s\\n' "$KEYLINE" >> "$H/.ssh/authorized_keys"
+    say "key authorised"
+fi
 chown -R "$U" "$H/.ssh"
 chmod 700 "$H/.ssh"
 chmod 600 "$H/.ssh/authorized_keys"
-echo "done: user $U can now run only CodeSift sandbox jobs"
+
+# 6. sshd must let $U in. Only checked, never edited.
+if command -v sshd >/dev/null 2>&1; then
+    ALLOW=$(sshd -T 2>/dev/null | grep -iE '^allow(users|groups) ' || true)
+    if [ -n "$ALLOW" ]; then
+        say "WARNING: sshd has AllowUsers/AllowGroups set - add $U there, or CodeSift cannot log in:"
+        say "  $ALLOW"
+    fi
+fi
+say "done: user $U can now run only CodeSift sandbox jobs"
+"""  # noqa: S608  # nosec B608 - a shell script for the VM, not SQL
+
+
+DOCKER_BLOCK = """\
+if ! command -v docker >/dev/null 2>&1; then
+    case "$PKG" in
+        apt-get) install_pkg docker.io ;;
+        dnf|yum) install_pkg moby-engine 2>/dev/null || install_pkg docker ;;
+        *) install_pkg docker ;;
+    esac
+fi
+if ! docker info >/dev/null 2>&1; then
+    say "starting the docker service"
+    start_service docker
+    i=0
+    while ! docker info >/dev/null 2>&1; do
+        i=$((i + 1))
+        if [ "$i" -gt 30 ]; then
+            say "docker is installed but not running - start it and run this again"; exit 5
+        fi
+        sleep 1
+    done
+fi
+say "docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '?') is running"
+getent group docker >/dev/null 2>&1 || groupadd docker 2>/dev/null || addgroup docker
+#    NOTE: membership in the docker group is root-equivalent on this VM. The gate below limits what
+#    CodeSift's key can run to the fixed, network-less job shape. Use a lab VM, never production.
+addgroup "$U" docker 2>/dev/null || usermod -aG docker "$U"
+"""
+
+PODMAN_BLOCK = """\
+command -v podman >/dev/null 2>&1 || install_pkg podman
+#    podman runs rootless as "$U": it needs subuid/subgid ranges (see docs/vm-setup.md).
+grep -q "^$U:" /etc/subuid 2>/dev/null || printf '%s:200000:65536\\n' "$U" >> /etc/subuid
+grep -q "^$U:" /etc/subgid 2>/dev/null || printf '%s:200000:65536\\n' "$U" >> /etc/subgid
+say "podman $(podman --version 2>/dev/null || echo '?')"
 """

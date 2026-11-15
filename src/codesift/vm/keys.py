@@ -62,7 +62,8 @@ def generate_key(keys_dir: Path) -> tuple[Path, str]:
     """Create a new ed25519 key pair. Returns (private key path, public key line)."""
     from codesift.secrets_store import restrict, restrict_dir
 
-    restrict_dir(keys_dir)
+    if not keys_dir.is_dir():
+        restrict_dir(keys_dir)  # a folder that already exists (e.g. ~/.ssh) keeps its permissions
     private = keys_dir / KEY_NAME
     public = private.with_suffix(".pub")
     if private.exists():

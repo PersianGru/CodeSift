@@ -35,7 +35,7 @@ from codesift.redact import Redactor
 from codesift.secrets_store import StoreError, describe, migrate_legacy_gateway, save_gateway
 from codesift.vm import SandboxError
 from codesift.vm import keys as vm_keys
-from codesift.vm.admin import authorized_keys_line
+from codesift.vm.bootstrap import AdminLogin
 from codesift.vm.config import DEFAULT_IMAGE, VMConfig, load_vm_config, save_vm_config
 from codesift.vm.sshargs import ArgError, validate_host, validate_key_path, validate_port, validate_user
 
@@ -325,9 +325,21 @@ What is never done:
 PARTS = ("llm", "vm", "fixers")
 PART_FILES: dict[str, Callable[[Paths], list[Any]]] = {
     "llm": lambda p: [p.gateway_file],
-    "vm": lambda p: [p.vm_file, p.vm_known_hosts, p.keys_dir],
+    "vm": lambda p: [p.vm_file, p.vm_known_hosts, p.keys_dir, *_own_key_files(p)],
     "fixers": lambda p: [p.fix_file, p.consent_file, p.anthropic_file],
 }
+
+
+def _own_key_files(paths: Paths) -> list[Path]:
+    """CodeSift's own sandbox key, wherever the user chose to keep it (never any other key)."""
+    try:
+        cfg = load_vm_config(paths)
+    except SandboxError:
+        return []
+    key = Path(cfg.key_path)
+    if cfg.key_user_supplied or key.name != vm_keys.KEY_NAME:
+        return []
+    return [key, key.with_name(key.name + ".pub")]
 
 
 @dataclass
@@ -508,89 +520,141 @@ def _pin(io: WizardIO, paths: Paths, host: str, port: int) -> str:
     return preferred[0].fingerprint
 
 
+def _vm_key(io: WizardIO, cur: VMConfig) -> tuple[Path, str]:
+    """CodeSift's own sandbox key, in a folder the user picks (default: their SSH folder). Reused when
+    it is already there; created otherwise."""
+    from codesift.vm.bootstrap import default_ssh_dir
+
+    current = Path(cur.key_path).parent if cur.key_path and not cur.key_user_supplied else None
+    default = current or default_ssh_dir()
+    while True:
+        answer = io.ask("Folder to keep CodeSift's own SSH key in", str(default))
+        folder = Path(answer).expanduser()
+        if folder.is_absolute() and not folder.is_file():
+            break
+        io.say("  enter the full path of a folder")
+    private = folder / vm_keys.KEY_NAME
+    if private.is_file():
+        io.say(f"  using the existing key {private}")
+        return private, vm_keys.public_key_of(private)
+    private, pubkey = vm_keys.generate_key(folder)
+    io.say(f"  created {private} (+ .pub). No passphrase: on the VM it can only run sandbox jobs.")
+    return private, pubkey
+
+
+def _admin_login(io: WizardIO, host: str, port: int) -> AdminLogin:
+    from codesift.vm.bootstrap import find_admin_key, validate_admin_user
+
+    io.say("CodeSift logs in once as an admin to set the VM up (user, container runtime, gate).")
+    admin = _ask_valid(io, "Admin user name on the VM", "root", validate_admin_user)
+    found = find_admin_key()
+    while True:
+        how = io.ask(
+            "Does that admin sign in with an SSH key or a password? (key/password)",
+            "key" if found else "password",
+        ).lower()
+        if how in ("key", "k", "password", "p", "pass"):
+            break
+        io.say("  type key or password")
+    if how.startswith("p"):
+        io.say("  ssh will ask for the password itself - CodeSift never sees or stores it.")
+        return AdminLogin(host, port, admin, None)
+    while True:
+        path = io.ask("Path of the admin's private key", str(found) if found else None)
+        try:
+            key = validate_key_path(path, user_supplied=True)
+        except ArgError as exc:
+            io.say(f"  {exc}")
+            continue
+        io.say("  the key file is only passed to ssh; CodeSift never reads it.")
+        return AdminLogin(host, port, admin, key)
+
+
 def step_vm(io: WizardIO, paths: Paths, env: Mapping[str, str]) -> StepResult:
+    from codesift.vm.admin import admin_script
+    from codesift.vm.bootstrap import run_admin_setup
+    from codesift.vm.commands import cmd_image_pull, doctor_lines
+
     io.say("")
     for line in VM_INTRO:
         io.say(line)
-    cur = _current_vm(paths) or VMConfig()
-    host = _ask_valid(io, "VM host name or IP address", cur.host or None, validate_host)
+    cur = _current_vm(paths)
+    if (
+        cur
+        and cur.host
+        and io.yes(f"The VM {cur.user}@{cur.host} is already set up. Only re-check it?", True)
+    ):
+        return _vm_check(io, paths, cur, doctor_lines, cmd_image_pull)
+    cur = cur or VMConfig()
+    host = _ask_valid(io, "VM IP address or host name", cur.host or None, validate_host)
     port = int(_ask_valid(io, "SSH port", str(cur.port), validate_port))
-    io.say("Use a dedicated unprivileged user on the VM (not an admin; `sift vm admin-script` creates one).")
-    user = _ask_valid(io, "VM user name", cur.user or "codesift", validate_user)
-    runtime = io.ask("Container runtime (docker or podman)", cur.runtime)
-    while runtime not in ("docker", "podman"):
-        runtime = io.ask("Container runtime - type docker or podman", "docker")
-    image = io.ask("Sandbox image (needs sh, tar, timeout; add your test tools)", cur.image or DEFAULT_IMAGE)
-    cfg = VMConfig(host=host, port=port, user=user, runtime=runtime, image=image)
-    if image == cur.image:
-        cfg.image_id = cur.image_id
-    if io.yes("Use the safe default limits (512 MB memory, 1 CPU, 128 processes, 300 s per job)?", True):
-        cfg.memory_mb, cfg.cpus, cfg.pids, cfg.job_timeout_s = 512, 1.0, 128, 300
-    else:
-        cfg.memory_mb = _ask_int(io, "Memory per job (MB)", cur.memory_mb, 64, 65536)
-        cfg.cpus = float(_ask_int(io, "CPUs per job", max(1, int(cur.cpus)), 1, 64))
-        cfg.pids = _ask_int(io, "Max processes per job", cur.pids, 16, 4096)
-        cfg.job_timeout_s = _ask_int(io, "Max seconds per job", cur.job_timeout_s, 5, 3600)
-    cfg.min_free_mem_mb = max(cfg.memory_mb + 256, 512)
-
-    # Authentication: a dedicated key (recommended) or an existing key path. No passwords, ever.
-    pubkey = ""
-    existing = Path(cur.key_path) if cur.key_path else None
-    if existing is None and (paths.keys_dir / vm_keys.KEY_NAME).is_file():
-        existing = paths.keys_dir / vm_keys.KEY_NAME  # generated by an earlier setup that stopped later
-    if existing and existing.is_file() and io.yes(f"Keep the current SSH key ({existing.name})?", True):
-        cfg.key_path, cfg.key_user_supplied = str(existing), cur.key_user_supplied
-        if not cur.key_user_supplied:
-            pubkey = vm_keys.public_key_of(existing)
-    elif io.yes("Generate a dedicated SSH key for the sandbox (recommended)?", True):
-        io.say("  The key has no passphrase: it is used only for this sandbox and the gate script on the")
-        io.say("  VM restricts it to sandbox jobs. It is stored owner-only in CodeSift's config folder.")
-        private, pubkey = vm_keys.generate_key(paths.keys_dir)
-        cfg.key_path, cfg.key_user_supplied = str(private), False
-    else:
-        io.say("  The key file is never read or shown; only its path is stored. A key with a passphrase")
-        io.say("  works only if it is loaded in your ssh-agent (connections run in batch mode).")
-        while True:
-            path = io.ask("Path of the existing private key")
-            try:
-                resolved = validate_key_path(path, user_supplied=True)
-            except ArgError as exc:
-                io.say(f"  {exc}")
-                continue
-            break
-        cfg.key_path, cfg.key_user_supplied = str(resolved), True
-        from codesift.secrets_store import owner_only
-
-        if owner_only(resolved) is False:
-            io.say(f"  warning: {resolved} is readable by other users - run: chmod 600 {resolved}")
-    if pubkey:
-        io.say("")
-        io.say("Public key (safe to share) - the VM admin installs it for the user above:")
-        io.say(f"  {pubkey}")
-        io.say("Recommended authorized_keys line (restricted to the gate, see `sift vm admin-script`):")
-        io.say(f"  {authorized_keys_line(pubkey)}")
-        io.say(f"Or without the gate:  echo '{pubkey}' >> ~{user}/.ssh/authorized_keys")
-        io.say("")
-
     known = vm_keys.pinned_fingerprints(paths.vm_known_hosts) if cur.host == host and cur.port == port else []
-    if known and cur.host_key_fingerprint in known and io.yes("Keep the pinned host key?", True):
-        cfg.host_key_fingerprint = cur.host_key_fingerprint
+    if known and cur.host_key_fingerprint in known:
+        fingerprint = cur.host_key_fingerprint
     else:
-        cfg.host_key_fingerprint = _pin(io, paths, host, port)
-    cfg.known_hosts_path = str(paths.vm_known_hosts)
+        fingerprint = _pin(io, paths, host, port)
+    login = _admin_login(io, host, port)
+    key_path, pubkey = _vm_key(io, cur)
+
+    # Everything else has safe defaults (dedicated user `codesift`, docker, default image and limits).
+    cfg = VMConfig(
+        host=host,
+        port=port,
+        user=cur.user or "codesift",
+        runtime=cur.runtime,
+        image=cur.image or DEFAULT_IMAGE,
+        key_path=str(key_path),
+        key_user_supplied=False,
+        known_hosts_path=str(paths.vm_known_hosts),
+        host_key_fingerprint=fingerprint,
+    )
+    if cur.host == host:
+        cfg.image_id = cur.image_id
+        cfg.memory_mb, cfg.cpus, cfg.pids, cfg.job_timeout_s = (
+            cur.memory_mb,
+            cur.cpus,
+            cur.pids,
+            cur.job_timeout_s,
+        )
+    cfg.min_free_mem_mb = max(cfg.memory_mb + 256, 512)
+    cfg.validate()
+
+    io.say("")
+    io.say(f"Setting up the VM as {login.user}@{host} (you may be asked for the password, then for sudo):")
+    run_admin_setup(login, paths.vm_known_hosts, admin_script(cfg, pubkey))
     note = save_vm_config(paths, cfg)
     io.say(f"  saved {paths.vm_file} ({note})")
+    return _vm_check(io, paths, cfg, doctor_lines, cmd_image_pull)
+
+
+def _vm_check(
+    io: WizardIO,
+    paths: Paths,
+    cfg: VMConfig,
+    doctor_lines: Callable[..., list[str]],
+    pull: Callable[..., int],
+) -> StepResult:
+    """With CodeSift's own key from here on: pin the image if needed, then the full isolation self-test."""
     lines = [
-        f"Sandbox VM: {user}@{host}:{port} · {runtime} · image {image}"
-        + (" (pinned)" if cfg.image_id else " (not pinned yet: `sift vm image pull`)"),
+        f"Sandbox VM: {cfg.user}@{cfg.host}:{cfg.port} · {cfg.runtime} · image {cfg.image}",
         f"Host key: {cfg.host_key_fingerprint}",
     ]
-    if io.yes("Contact the VM now and run `sift vm doctor`?", False):
-        from codesift.vm.commands import doctor_lines
-
-        for line in doctor_lines(paths):
-            io.say(f"  {line}")
-    return StepResult("vm", True, lines)
+    if not cfg.image_id:
+        io.say(f"Pulling the sandbox image {cfg.image} on the VM ...")
+        if pull(paths, None, lambda text: io.say(f"  {text}")) != 0:
+            lines.append("image NOT pulled - run `sift vm image pull` after fixing the error above")
+            return StepResult("vm", False, lines)
+    io.say("Checking the sandbox (connection and isolation self-test) ...")
+    result = doctor_lines(paths)
+    for line in result:
+        io.say(f"  {line}")
+    ok = bool(result) and result[-1] == "self-test PASSED"
+    lines.append(
+        "self-test passed - ready for `sift validate` and `sift fix`"
+        if ok
+        else "self-test FAILED - see the lines above, then run `sift vm doctor`"
+    )
+    return StepResult("vm", ok, lines)
 
 
 def noninteractive_vm(opts: SetupOptions, paths: Paths, env: Mapping[str, str]) -> StepResult:

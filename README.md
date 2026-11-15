@@ -78,10 +78,14 @@ run a single part, `--show` prints the masked state, and `--reset PART` removes 
    - The API key is entered as hidden input and may be empty.
    - Model ids are free text.
    - The connection test reports reachability, HTTP status, the number of models and latency.
-2. **Sandbox VM**: host, port, an unprivileged user, Docker or Podman, and resource caps.
-   - It generates a dedicated ed25519 key, or uses a key path you give it.
+2. **Sandbox VM**: the VM's address and SSH port, an admin user, and whether that admin signs in
+   with a key (its path) or a password. CodeSift does the rest by itself.
    - It **pins the VM's host key** only after you type `yes` to its fingerprint.
-   - Passwords are never stored.
+   - It creates its own ed25519 key in your SSH folder (`%USERPROFILE%\.ssh` or `~/.ssh`).
+   - It logs in once as the admin to create the unprivileged `codesift` user, make sure Docker is
+     installed and running, and install the forced-command gate. The password goes only into ssh's or
+     sudo's own prompt; it is never seen or stored.
+   - It pulls the sandbox image and runs the isolation self-test. See [docs/vm-setup.md](docs/vm-setup.md).
 3. **Fixers**: the gateway model, the Claude CLI and the Claude API, with one honest line each about
    what leaves the machine. The Claude backends stay unusable until your consent is recorded.
 

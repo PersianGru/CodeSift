@@ -41,14 +41,17 @@ pipeline. Rules referenced as R<n> are in [RULES.md](../RULES.md).
 | Secret leakage | key in an error message, event, audit or report | `Redactor` on every output path; keys only in headers/env; seeded-secret tests grep every artefact | `test_engine_validate.py::test_secrets_never_in_artifacts`, `test_fixers.py::test_claude_api_headers_and_errors`, `test_fixers.py::test_claude_cli_argv_stdin_env` |
 
 | Untrusted code on the host | a test/PoC run "just to check" | no local execution path; fail closed without a sandbox or with a failed self-test | `test_engine_validate.py::test_fail_closed_without_vm`, `::test_fail_closed_on_selftest_failure` |
+| Admin credential exposure | the one-time admin login in `sift setup --vm` leaking the admin password or key | ssh runs attached to the console, so passwords go only into ssh's or sudo's own prompt; the admin key is passed as a path and never read; only the host key the user just pinned is trusted; `-F none`, no forwarding; the script travels base64-encoded, so no value can break the quoting | `test_setup_vm.py::test_vm_step_password_admin_does_everything`, `::test_vm_step_key_admin`, `::test_remote_command_is_quoted_and_becomes_root` |
 | VM collateral damage | cleanup removing someone else's container | label-filtered listing, hex-id validation, `rm -f` only of those ids | `test_vm.py::test_cleanup_never_touches_other_containers` |
 | Consent bypass | Claude backend used without a recorded yes | backends without matching consent text are left out of the ladder | `test_fixers.py::test_backends_without_consent_are_unusable`, `::test_consent_and_config` |
 
 ## Residual risks (stated honestly)
 
 - **Without the gate script**, CodeSift's SSH user can run any container command on the VM, and
-  `docker` group membership is root-equivalent there. Use a lab VM; install the gate
-  (`sift vm admin-script`).
+  `docker` group membership is root-equivalent there. `sift setup --vm` always installs the gate; a
+  hand-made setup must install it too (`sift vm admin-script`). Use a lab VM.
+- **The admin login** in `sift setup --vm` runs a root script on the VM. It is the script printed by
+  `sift vm admin-script`, so it can be reviewed first.
 - **Container escape** via a kernel or runtime bug is out of CodeSift's control; the VM is the outer
   boundary. Keep the VM patched and isolated from production networks.
 - **`sift vm image build` / `pull` use the network on the VM.** Run them only on explicit command,

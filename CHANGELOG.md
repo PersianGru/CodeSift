@@ -12,13 +12,16 @@ Prove fixes, not just find problems. The scan commands behave as before. Design:
 ### Added
 
 - `sift setup`: a wizard for the LLM gateway (any OpenAI-compatible base URL, connection test), the
-  sandbox VM (dedicated SSH key, host key pinned after a typed `yes`) and the fixer backends (with
-  recorded consent). Also `--show`, `--reset` and a non-interactive mode where secrets come only from
+  sandbox VM and the fixer backends (with recorded consent). For the VM it asks only for the address,
+  port, admin user and how the admin signs in (key or password), pins the host key after a typed
+  `yes`, then sets the VM up by itself: its own key in your SSH folder, one admin login (passwords go
+  only into ssh's or sudo's own prompt) that creates the `codesift` user, installs and starts Docker
+  if needed and installs the gate, then the image pull and the isolation self-test. Also `--show`, `--reset` and a non-interactive mode where secrets come only from
   environment variables.
 - Sandbox VM backend (`sift vm setup|doctor|status|reset|image|admin-script`):
   - one hardened, network-less, read-only, non-root container per job, reached over the system `ssh`;
   - a resource guard, label-only cleanup and an isolation self-test, with fail-closed behaviour;
-  - image pinning, plus an optional forced-command gate script for the VM admin.
+  - image pinning and a forced-command gate on the VM.
 - `sift validate`: proves a working-tree change, a patch or a branch on a copy of the project, using
   the patch policy, project tests, project PoCs and a re-scan. Exact outcomes and exit codes
   0/1/2/4.
