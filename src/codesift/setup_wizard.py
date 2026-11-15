@@ -620,7 +620,9 @@ def step_vm(io: WizardIO, paths: Paths, env: Mapping[str, str]) -> StepResult:
     cfg.validate()
 
     io.say("")
-    io.say(f"Setting up the VM as {login.user}@{host} (you may be asked for the password, then for sudo):")
+    io.say(f"Setting up the VM as {login.user}@{host}.")
+    if login.user != "root":
+        io.say(f"  sudo or doas will then ask for {login.user}'s own password again (not root's).")
     run_admin_setup(login, paths.vm_known_hosts, admin_script(cfg, pubkey))
     note = save_vm_config(paths, cfg)
     io.say(f"  saved {paths.vm_file} ({note})")

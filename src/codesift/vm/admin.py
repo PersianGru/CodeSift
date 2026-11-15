@@ -18,6 +18,7 @@ GATE_PATH = "/usr/local/bin/codesift-gate"
 GATE_IMAGES = "/etc/codesift-gate.images"
 GATE_DENY_RC = 126
 MAX_GATE_COMMAND = 16384
+SCRIPT_FAILED_RC = 10  # admin_script: a step failed (sudo/doas refusing the password exits 1)
 
 _RT = "(docker|podman)"
 _ID = "[0-9a-f]{32}"
@@ -137,6 +138,9 @@ def admin_script(cfg: VMConfig, pubkey: str) -> str:
 # Creates the unprivileged user '{user}', makes sure the container runtime is installed and running,
 # installs the forced-command gate and authorises CodeSift's key ONLY through that gate.
 set -eu
+#    Any failure below exits {SCRIPT_FAILED_RC} (4 and 5 are reported with their own message), so the
+#    caller can tell it apart from sudo/doas refusing the password, which exits 1 before this runs.
+trap 'rc=$?; case $rc in 0|4|5) ;; *) exit {SCRIPT_FAILED_RC} ;; esac' EXIT
 U='{user}'
 say() {{ printf 'codesift: %s\\n' "$*"; }}
 

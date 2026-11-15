@@ -27,6 +27,7 @@ from codesift.vm.sshargs import ArgError, option_path, validate_host, validate_k
 # CodeSift's own user plus a dot, which some distros allow.
 _ADMIN_OK = set("abcdefghijklmnopqrstuvwxyz0123456789_-.")
 NO_ROOT_RC = 3
+SUDO_REFUSED_RC = 1  # sudo/doas exit 1 on a wrong password or a missing rule; the script itself never does
 MAX_SCRIPT = 24000  # bytes; keeps the remote command far below every OS command-line limit
 
 COMMON_KEYS = ("id_ed25519", "id_ecdsa", "id_rsa")
@@ -154,6 +155,15 @@ def run_admin_setup(login: AdminLogin, known_hosts: Path, script: str) -> None:
         )
     if rc == 124:
         raise SandboxError("the VM setup did not finish within 15 minutes")
+    if rc == SUDO_REFUSED_RC:
+        raise SandboxError(
+            f"sudo/doas on the VM refused {login.user} (wrong password, or the account may not use it)",
+            fix=(
+                f"sudo and doas ask for {login.user}'s OWN password, not root's. Check it with "
+                f"`ssh {login.user}@{login.host}` then `doas true` (or `sudo true`); if the account "
+                "is not allowed, use root as the admin user or add it to the wheel group"
+            ),
+        )
     raise SandboxError(
         f"the VM setup script stopped with exit code {rc} (its messages are above)",
         fix="fix what it reports and run `sift setup --vm` again - it is safe to repeat",

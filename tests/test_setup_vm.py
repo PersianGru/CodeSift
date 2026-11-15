@@ -147,6 +147,21 @@ def test_vm_step_admin_failure_saves_nothing(paths: Paths, fake_ssh: Fake) -> No
     script = Script(["192.168.0.50", "", "yes", "", "password", ""], [])
     assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 2
     assert "could not log in as root@192.168.0.50" in script.text
+    fake_ssh.admin_rc = bootstrap.SUDO_REFUSED_RC
+    script = Script(["192.168.0.50", "", "yes", "adm-docker", "password", ""], [])
+    assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 2
+    assert "sudo/doas on the VM refused adm-docker" in script.text
+    assert "adm-docker's own password again" in script.text
+    assert not paths.vm_file.exists()
+
+
+def test_admin_script_failures_never_look_like_sudo_refusal() -> None:
+    from codesift.vm.admin import SCRIPT_FAILED_RC, admin_script
+    from codesift.vm.config import VMConfig
+
+    text = admin_script(VMConfig(host="vm.example.test", user="codesift"), PUB)
+    assert f"*) exit {SCRIPT_FAILED_RC} ;; esac' EXIT" in text
+    assert SCRIPT_FAILED_RC != bootstrap.SUDO_REFUSED_RC
 
 
 def test_vm_step_rejects_injection_then_accepts(paths: Paths, fake_ssh: Fake) -> None:
