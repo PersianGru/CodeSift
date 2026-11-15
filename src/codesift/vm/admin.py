@@ -37,7 +37,8 @@ GATE_PATTERNS: tuple[str, ...] = (
     (
         f"^{_RT} run --rm -i --pull=never --name sift-{_ID} --label codesift\\.job={_ID} --network none "
         "--cap-drop ALL --security-opt no-new-privileges --read-only "
-        "--tmpfs /tmp:rw,noexec,nosuid,size=64m --tmpfs /work:rw,exec,nosuid,size=256m "
+        "--tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 "
+        "--tmpfs /work:rw,exec,nosuid,size=256m,uid=65534,gid=65534,mode=0700 "
         "--pids-limit [0-9]{1,5} --memory [0-9]{1,6}m --memory-swap [0-9]{1,6}m "
         "--cpus [0-9]{1,2}(\\.[0-9]{1,2})? --ulimit nofile=1024:1024 --ulimit fsize=[0-9]{1,12} "
         f"--user 65534:65534 --workdir /work {_IMG} sh -c {_QWORD}$"

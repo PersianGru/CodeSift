@@ -88,7 +88,9 @@ def probes(sandbox: Sandbox) -> list[Probe]:
     cap = cfg.max_output_kb * 1024
 
     def starts(r: JobResult) -> tuple[bool, str]:
-        return r.rc == 0 and "codesift-ok" in r.output, f"rc {r.rc}"
+        ok = r.rc == 0 and "codesift-ok" in r.output
+        said = _first_line(r.output)
+        return ok, f"rc {r.rc}" + ("" if ok or not said else f" ({said})")
 
     def non_root(r: JobResult) -> tuple[bool, str]:
         uid = _first_line(r.output)

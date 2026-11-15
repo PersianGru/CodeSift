@@ -25,7 +25,7 @@ done <<'PATTERNS'
 ^(docker|podman) image inspect --format '\{\{\.Id\}\}' [A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$
 ^(docker|podman) image pull [A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$
 ^(docker|podman) build --tag sift-[a-z0-9._-]{1,64}(:[A-Za-z0-9._-]{1,64})? -$
-^(docker|podman) run --rm -i --pull=never --name sift-[0-9a-f]{32} --label codesift\.job=[0-9a-f]{32} --network none --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --tmpfs /work:rw,exec,nosuid,size=256m --pids-limit [0-9]{1,5} --memory [0-9]{1,6}m --memory-swap [0-9]{1,6}m --cpus [0-9]{1,2}(\.[0-9]{1,2})? --ulimit nofile=1024:1024 --ulimit fsize=[0-9]{1,12} --user 65534:65534 --workdir /work [A-Za-z0-9][A-Za-z0-9._/:@-]{0,254} sh -c '[^']*'("'"'[^']*')*$
+^(docker|podman) run --rm -i --pull=never --name sift-[0-9a-f]{32} --label codesift\.job=[0-9a-f]{32} --network none --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 --tmpfs /work:rw,exec,nosuid,size=256m,uid=65534,gid=65534,mode=0700 --pids-limit [0-9]{1,5} --memory [0-9]{1,6}m --memory-swap [0-9]{1,6}m --cpus [0-9]{1,2}(\.[0-9]{1,2})? --ulimit nofile=1024:1024 --ulimit fsize=[0-9]{1,12} --user 65534:65534 --workdir /work [A-Za-z0-9][A-Za-z0-9._/:@-]{0,254} sh -c '[^']*'("'"'[^']*')*$
 PATTERNS
 [ "$allowed" -eq 1 ] || deny
 if [ -f /etc/codesift-gate.images ]; then

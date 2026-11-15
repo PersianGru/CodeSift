@@ -212,7 +212,7 @@ def test_container_argv_exact() -> None:
     assert argv[argv.index("--label") + 1] == f"{LABEL}={jid}"
     assert argv[argv.index("--memory") + 1] == "512m" == argv[argv.index("--memory-swap") + 1]
     assert argv[argv.index("--pids-limit") + 1] == "128"
-    assert "/tmp:rw,noexec,nosuid,size=64m" in argv
+    assert "/tmp:rw,noexec,nosuid,size=64m,mode=1777" in argv
     assert argv[-4:-1] == ["python:3.12-alpine", "sh", "-c"]
     for bad in FORBIDDEN:
         assert bad not in argv[: argv.index("python:3.12-alpine")]

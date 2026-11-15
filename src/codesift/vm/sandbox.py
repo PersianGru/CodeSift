@@ -24,6 +24,7 @@ LABEL = "codesift.job"
 NAME_PREFIX = "sift-"
 RC_MARKER = "__CODESIFT_RC__="
 REJECT_MARKER = "__CODESIFT_REJECT__"
+NOWRITE = "codesift: the job user cannot write /work in the container"
 MAX_COMMAND = 4096
 TRANSPORT_SLACK_S = 60
 PROBE_TIMEOUT_S = 30
@@ -82,7 +83,7 @@ def wrapper_script(command: str, timeout_s: int, cap_bytes: int) -> str:
     unsafe = "'^/|(^|/)[.][.](/|$)'"
     return (
         "umask 022; export HOME=/work; T=/work/.in.tar; L=/work/.list; "
-        f'cat > "$T" || {{ {fail}; }}; '
+        f'cat > "$T" || {{ echo "{NOWRITE}"; {fail}; }}; '
         f'tar -tf "$T" > "$L" 2>/dev/null || {{ echo "{REJECT_MARKER} unreadable input"; {fail}; }}; '
         f'if grep -Eq {unsafe} "$L"; then echo "{REJECT_MARKER} unsafe path in input"; {fail}; fi; '
         'mkdir -p /work/src && tar -xf "$T" -C /work/src 2>/dev/null'
@@ -133,9 +134,9 @@ def container_argv(cfg: VMConfig, job_id: str, script: str) -> list[str]:
         "no-new-privileges",
         "--read-only",
         "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=64m",  # noqa: S108  # nosec B108 - tmpfs inside the container, not a host path
+        "/tmp:rw,noexec,nosuid,size=64m,mode=1777",  # noqa: S108  # nosec B108 - tmpfs inside the container, not a host path
         "--tmpfs",
-        "/work:rw,exec,nosuid,size=256m",
+        "/work:rw,exec,nosuid,size=256m,uid=65534,gid=65534,mode=0700",
         "--pids-limit",
         str(int(cfg.pids)),
         "--memory",
