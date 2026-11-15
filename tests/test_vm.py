@@ -547,6 +547,49 @@ def test_keyscan_output_parsed_strictly(monkeypatch: pytest.MonkeyPatch) -> None
     assert found == [HostKey("ssh-ed25519", "A" * 68)]
 
 
+def test_host_key_falls_back_to_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows' ssh-keyscan 9.5 returns nothing for OpenSSH 10 servers; an ssh handshake that
+    offers no credentials records the key into a throw-away known_hosts file instead."""
+    from codesift.vm import keys
+
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
+        calls.append(argv)
+        if argv[0] == "ssh-keyscan":
+            return subprocess.CompletedProcess(argv, 1, b"", b"choose_kex: unsupported KEX method")
+        opts = dict(argv[i + 1].split("=", 1) for i, a in enumerate(argv) if a == "-o")
+        if opts["HostKeyAlgorithms"] == "ssh-ed25519":
+            line = "vm ssh-ed25519 " + "A" * 68
+            Path(opts["UserKnownHostsFile"]).write_text(line + chr(10), encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 255, b"", b"Permission denied")
+
+    monkeypatch.setattr(keys, "_tool", lambda name: name)
+    monkeypatch.setattr(keys.shutil, "which", lambda name: name)
+    monkeypatch.setattr(subprocess, "run", run)
+    assert keys.scan_host_keys("vm.example.test", 2222) == [HostKey("ssh-ed25519", "A" * 68)]
+    ssh_calls = [c for c in calls if c[0] == "ssh"]
+    assert len(ssh_calls) == 2
+    for argv in ssh_calls:
+        opts = dict(argv[i + 1].split("=", 1) for i, a in enumerate(argv) if a == "-o")
+        assert argv[1:3] == ["-F", "none"] and "-p" in argv and argv[argv.index("-p") + 1] == "2222"
+        assert opts["PreferredAuthentications"] == "none"
+        assert opts["PubkeyAuthentication"] == opts["PasswordAuthentication"] == "no"
+        assert opts["IdentityAgent"] == "none" and opts["ForwardAgent"] == "no"
+        assert argv[-3:] == ["--", "codesift-hostkey-probe@vm.example.test", "true"]
+        assert "-i" not in argv
+
+
+def test_host_key_none_anywhere_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    from codesift.vm import keys
+
+    monkeypatch.setattr(keys, "_tool", lambda name: name)
+    monkeypatch.setattr(keys.shutil, "which", lambda name: name)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 255, b"", b""))
+    with pytest.raises(SandboxError, match="no host key"):
+        keys.scan_host_keys("vm.example.test", 22)
+
+
 # ---------------------------------------------------------------- commands
 
 

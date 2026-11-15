@@ -3,7 +3,10 @@
 - `generate_key` runs `ssh-keygen -t ed25519` into CodeSift's own keys folder (no passphrase: the
   key is dedicated to the sandbox and restricted on the VM by the gate). The private key is never
   read or printed; only the public key is shown.
-- `scan_host_keys` runs `ssh-keyscan`; its output is untrusted and parsed strictly.
+- `scan_host_keys` runs `ssh-keyscan`; its output is untrusted and parsed strictly. Some
+  `ssh-keyscan` builds (Windows' OpenSSH 9.5) cannot talk to newer servers, so when it returns no
+  key the host key is read by an `ssh` handshake that offers no credentials at all, recorded into a
+  throw-away known_hosts file.
 - `fingerprint` computes OpenSSH's SHA256 fingerprint locally; the user must confirm it by typing
   `yes` before it is pinned into `vm_known_hosts`."""
 
@@ -15,6 +18,7 @@ import hashlib
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -92,15 +96,81 @@ def scan_host_keys(host: str, port: int, timeout: int = 15) -> list[HostKey]:
         timeout=timeout + 15,
         check=False,
     )
-    keys: list[HostKey] = []
-    for line in proc.stdout.decode("utf-8", "replace").splitlines()[:20]:
-        m = _KEYSCAN_LINE.match(line.strip())
-        if m:
-            keys.append(HostKey(m.group("type"), m.group("key")))
+    keys = _parse_keys(proc.stdout.decode("utf-8", "replace"))
+    if not keys:
+        keys = _handshake_host_keys(host, port, timeout)
     if not keys:
         raise SandboxError(
             "no host key received from the VM", fix="check host, port and that sshd is running"
         )
+    return keys
+
+
+def _parse_keys(text: str) -> list[HostKey]:
+    keys: list[HostKey] = []
+    for line in text.splitlines()[:20]:
+        m = _KEYSCAN_LINE.match(line.strip())
+        if m:
+            keys.append(HostKey(m.group("type"), m.group("key")))
+    return keys
+
+
+# Host key algorithm offered -> what is recorded in known_hosts.
+_HANDSHAKE_ALGS = ("ssh-ed25519", "rsa-sha2-512")
+
+
+def _handshake_argv(
+    ssh: str, host: str, port: int, timeout: int, alg: str, kh: Path, empty: Path
+) -> list[str]:
+    """`ssh` that records the server's host key and then fails auth: it offers no key, no password,
+    no agent and no forwarding, and ignores the user's ssh config."""
+    opts = {
+        "BatchMode": "yes",
+        "StrictHostKeyChecking": "accept-new",
+        "UserKnownHostsFile": str(kh),
+        "GlobalKnownHostsFile": str(empty),
+        "HashKnownHosts": "no",
+        "HostKeyAlgorithms": alg,
+        "PreferredAuthentications": "none",
+        "PubkeyAuthentication": "no",
+        "PasswordAuthentication": "no",
+        "KbdInteractiveAuthentication": "no",
+        "IdentitiesOnly": "yes",
+        "IdentityAgent": "none",
+        "ForwardAgent": "no",
+        "ClearAllForwardings": "yes",
+        "ControlMaster": "no",
+        "ControlPath": "none",
+        "ConnectTimeout": str(timeout),
+    }
+    argv = [ssh, "-F", "none", "-T", "-p", str(port)]
+    for k, v in opts.items():
+        argv += ["-o", f"{k}={v}"]
+    return [*argv, "--", f"codesift-hostkey-probe@{host}", "true"]
+
+
+def _handshake_host_keys(host: str, port: int, timeout: int) -> list[HostKey]:
+    ssh = shutil.which("ssh")
+    if ssh is None:
+        return []
+    keys: list[HostKey] = []
+    with tempfile.TemporaryDirectory(prefix="codesift-hk-") as tmp:
+        empty = Path(tmp) / "empty"
+        empty.write_text("", encoding="utf-8")
+        for alg in _HANDSHAKE_ALGS:
+            kh = Path(tmp) / f"kh-{alg}"
+            try:
+                subprocess.run(  # noqa: S603 - fixed argv, validated host/port, no shell
+                    _handshake_argv(ssh, host, port, timeout, alg, kh, empty),
+                    capture_output=True,
+                    stdin=subprocess.DEVNULL,
+                    timeout=timeout + 15,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            if kh.exists():
+                keys += _parse_keys(kh.read_text(encoding="utf-8", errors="replace"))
     return keys
 
 
