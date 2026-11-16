@@ -74,7 +74,7 @@
     ];
     nodes.core = { x: local.x + local.w / 2, y: local.y + Math.min(92, local.h * 0.26), r: 24, pick: { kind: "core" } };
     var names = wd.scannerOrder, cols = local.w > 420 ? 3 : 2;
-    var top = nodes.core.y + 86, rowH = Math.min(46, (local.y + local.h - top - 46) / Math.max(1, Math.ceil(names.length / cols)));
+    var top = nodes.core.y + 104, rowH = Math.min(78, (local.y + local.h - top - 40) / Math.max(1, Math.ceil(names.length / cols)));
     names.forEach(function (n, i) {
       var c = i % cols, r = Math.floor(i / cols);
       nodes["scanner:" + n] = { x: local.x + local.w * (c + 0.5) / cols, y: top + r * rowH + rowH / 2, r: 9, pick: { kind: "scanner", key: n } };
@@ -83,14 +83,14 @@
     ids.forEach(function (id, i) {
       nodes["model:" + id] = { x: llm.x + llm.w * (i + 0.5) / ids.length, y: llm.y + llm.h * 0.58, r: 16, pick: { kind: "model", key: id } };
     });
-    nodes.vm = { x: vm.x + vm.w * 0.22, y: vm.y + vm.h * 0.58, r: 18, pick: { kind: "vm" } };
+    nodes.vm = { x: vm.x + vm.w * 0.18, y: vm.y + vm.h * 0.52, r: 18, pick: { kind: "vm" } };
     var jobs = wd.jobOrder.slice(-12);
     jobs.forEach(function (id, i) {
       var c = i % 4, r = Math.floor(i / 4);
-      nodes["job:" + id] = { x: vm.x + vm.w * (0.45 + c * 0.14), y: vm.y + vm.h * (0.42 + r * 0.2), r: 7, pick: { kind: "vm" } };
+      nodes["job:" + id] = { x: vm.x + vm.w * (0.36 + c * 0.1), y: vm.y + vm.h * (0.36 + r * 0.17), r: 7, pick: { kind: "vm" } };
     });
     this.nodes = nodes;
-    this.findingRow = { x: local.x + local.w * 0.18, y: nodes.core.y + 46, w: local.w * 0.64 };
+    this.findingRow = { x: local.x + local.w * 0.18, y: nodes.core.y + 66, w: local.w * 0.64 };
   };
 
   // -------------------------------------------------------------- drawing

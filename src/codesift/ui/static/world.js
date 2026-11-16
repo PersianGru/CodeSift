@@ -134,7 +134,10 @@
         break;
       case "fix.attempt":
         this.backends[d.backend || "fixer"] = (this.backends[d.backend || "fixer"] || 0) + 1;
-        if (ev.finding && this.byId[ev.finding]) { this.byId[ev.finding].stage = "fix"; fx.push({ kind: "attack", finding: this.byId[ev.finding] }); }
+        if (ev.finding && this.byId[ev.finding]) {
+          this.byId[ev.finding].stage = "fix"; this.byId[ev.finding].backend = d.backend || "fixer";
+          fx.push({ kind: "attack", finding: this.byId[ev.finding] });
+        }
         break;
       case "finding.outcome":
         if (ev.finding && this.byId[ev.finding]) {

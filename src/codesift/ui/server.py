@@ -220,11 +220,12 @@ def make_handler(cfg: UIConfig, stop: threading.Event) -> type[BaseHTTPRequestHa
 
             try:
                 if rid == DEMO_ID and cfg.runs.demo is not None:
-                    for ev in cfg.runs.demo.events:
+                    demo = cfg.runs.demo
+                    for ev, delay in zip(demo.events, demo.delays, strict=True):
                         if stop.is_set():
                             return
-                        send(ev)
-                        time.sleep(0.35 / max(cfg.demo_speed, 0.1))
+                        time.sleep(delay / max(cfg.demo_speed, 0.1))
+                        send(dict(ev, ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
                     return
                 path = cfg.runs.resolve(rid) / "events.jsonl"
                 offset, idle = 0, 0.0

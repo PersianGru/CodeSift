@@ -171,3 +171,29 @@ def test_run_top_once_and_cli() -> None:
 def test_run_top_needs_a_terminal(capsys: Any) -> None:
     assert run_top(Runs(get_paths()), stream=io.StringIO()) == 2
     assert "interactive terminal" in capsys.readouterr().err
+
+
+def test_demo_plays_at_its_own_pace() -> None:
+    from codesift.ui.state import DemoRun
+
+    now = [100.0]
+    runs = Runs(get_paths(), demo=DemoRun())
+    f = Follower(runs, clock=lambda: now[0])
+    f.refresh()
+    assert f.current == "demo" and f.board.kind == "fix"  # run.start is due at once
+    now[0] += 5
+    f.pump()
+    assert f.board.heroes["ruff"].status == "ok" and not f.board.monsters  # findings come later
+    f.paused = True
+    now[0] += 500
+    f.pump()
+    assert not f.board.ended  # paused: the demo waits
+    f.paused = False
+    f.pump()
+    assert not f.board.ended
+    now[0] += 500
+    f.pump()
+    assert f.board.ended and f.board.exit_code == 1 and len(f.board.monsters) == 12
+    assert f.board.monsters["F001"].outcome == "fixed_verified" and f.board.vm_jobs == 18
+    text = paint(render(f.board, 120, 40, now[0]), color=False, ascii_only=False)
+    assert "demo-realm · fix " in text and "fix fix" not in text

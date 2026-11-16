@@ -2,7 +2,7 @@
 
 ```bash
 sift ui                 # follow your scans and fixes live
-sift ui --demo          # a synthetic run: no scan, no VM, no model
+sift ui --demo          # a synthetic run (about 2.5 min, every kind of event): no scan, no VM, no model
 sift ui --run DIR       # replay one run folder (with events.jsonl)
 sift ui --port 8765 --open --ci
 ```
@@ -93,5 +93,5 @@ It reads the same `events.jsonl` as the web UI, so it shows only what really hap
 | Battle log | every event in plain words, newest first |
 
 Keys: `q` quits, `←`/`→` (or `[` `]`) step to older or newer runs, `f` follows the newest run again,
-`p` pauses. `--once` prints one frame and exits; `--ascii` swaps box drawing for plain ASCII.
+`p` pauses. `--demo` plays the same synthetic run as `sift ui --demo`. `--once` prints one frame and exits; `--ascii` swaps box drawing for plain ASCII.
 `NO_COLOR` turns colour off.

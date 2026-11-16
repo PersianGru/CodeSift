@@ -139,6 +139,7 @@
   // ------------------------------------------------------------------ the realm
 
   function Realm(container) {
+    window.SiftRealm.current = this; // the live view, for debugging from the console
     this.el = container;
     this.world = W.create();
     this.time = 0; this.speed = 1; this.paused = false;
@@ -179,11 +180,11 @@
     this.el.appendChild(r.domElement);
     this.renderer = r;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0f1c);
-    this.scene.fog = new THREE.FogExp2(0x0a0f1c, 0.0105);
+    this.scene.background = new THREE.Color(0x070a12);
+    this.scene.fog = new THREE.FogExp2(0x0e1626, 0.0072);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.5, 600);
-    this.orbit = { azimuth: 1.05, polar: 0.92, dist: 74, dragging: false };
-    this.target = new THREE.Vector3(0, 2, 6);
+    this.orbit = { azimuth: 1.12, polar: 0.9, dist: 60, dragging: false };
+    this.target = new THREE.Vector3(1, 1, 7);
     this.raycaster = new THREE.Raycaster();
     var self = this;
     this.onResize = function () { self.resize(); };
@@ -201,29 +202,55 @@
     this.w = w; this.h = h;
   };
 
+  function groundTexture() {
+    var c = document.createElement("canvas"); c.width = c.height = 1024;
+    var g = c.getContext("2d");
+    var grad = g.createRadialGradient(512, 560, 30, 512, 512, 512);
+    grad.addColorStop(0, "#3b4a2c"); grad.addColorStop(0.35, "#2b3822"); grad.addColorStop(0.7, "#182016"); grad.addColorStop(1, "#0b0f0c");
+    g.fillStyle = grad; g.fillRect(0, 0, 1024, 1024);
+    for (var i = 0; i < 9000; i++) { // grass and pebbles: small speckles, lighter and darker
+      var x = Math.random() * 1024, y = Math.random() * 1024, r = Math.random() * 2.2 + 0.4;
+      g.fillStyle = Math.random() < 0.5 ? "rgba(120,150,80,0.10)" : "rgba(10,14,8,0.22)";
+      g.fillRect(x, y, r, r);
+    }
+    var tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.anisotropy = 4;
+    return tex;
+  }
+
   Realm.prototype.buildSky = function () {
     var s = this.scene;
-    s.add(new THREE.HemisphereLight(0x8ea6ff, 0x2a1c12, 0.55));
-    var moon = new THREE.DirectionalLight(0xc4d0ff, 1.15);
+    s.add(new THREE.HemisphereLight(0x6f86c9, 0x3a2a1a, 0.42));
+    var moon = new THREE.DirectionalLight(0xbfd0ff, 1.05);
     moon.position.set(-40, 70, 35);
     moon.castShadow = true;
     moon.shadow.mapSize.set(2048, 2048);
     var sc = moon.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 50; sc.bottom = -50; sc.near = 10; sc.far = 200;
     moon.shadow.bias = -0.0006; moon.shadow.normalBias = 0.03;
     s.add(moon);
-    var warm = new THREE.DirectionalLight(0xffb070, 0.35);
-    warm.position.set(30, 20, 60);
+    var warm = new THREE.DirectionalLight(0xffa860, 0.55);
+    warm.position.set(40, 25, 70);
     s.add(warm);
-    var ground = new THREE.Mesh(new THREE.CircleGeometry(170, 64), new THREE.MeshStandardMaterial({ color: 0x1b2216, roughness: 1 }));
+    var ground = new THREE.Mesh(new THREE.CircleGeometry(170, 96), new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.12; ground.receiveShadow = true;
     s.add(ground);
+    // sky dome: deep blue at the zenith, a faint warm glow at the horizon
+    var dome = new THREE.SphereGeometry(420, 32, 16), cols = [], pos = dome.attributes.position;
+    var top = new THREE.Color(0x04060c), mid = new THREE.Color(0x101a33), low = new THREE.Color(0x2a2230);
+    for (var i = 0; i < pos.count; i++) {
+      var h = pos.getY(i) / 420, col = h > 0.15 ? mid.clone().lerp(top, Math.min(1, (h - 0.15) / 0.6)) : low.clone().lerp(mid, Math.max(0, (h + 0.05) / 0.2));
+      cols.push(col.r, col.g, col.b);
+    }
+    dome.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    s.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
     var starGeo = new THREE.BufferGeometry(), pts = [];
-    for (var i = 0; i < 700; i++) {
-      var th = Math.random() * Math.PI * 2, ph = Math.random() * 0.45 * Math.PI, r = 380;
+    for (var k = 0; k < 900; k++) {
+      var th = Math.random() * Math.PI * 2, ph = Math.random() * 0.42 * Math.PI, r = 380;
       pts.push(r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) * 0.9 + 20, r * Math.sin(ph) * Math.sin(th));
     }
     starGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    s.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xbfcaff, size: 1.3, sizeAttenuation: false, fog: false })));
+    s.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xcfd8ff, size: 1.4, sizeAttenuation: false, fog: false })));
   };
 
   Realm.prototype.prop = function (name, x, y, z, rotY, parent) {
@@ -236,6 +263,16 @@
     return o;
   };
 
+  Realm.prototype.earth = function (o) {
+    if (!o) { return; }
+    var self = this;
+    o.traverse(function (m) {
+      if (!m.isMesh) { return; }
+      if (!self.earthMat) { self.earthMat = m.material.clone(); self.earthMat.color.setHex(0x8c7356); }
+      m.material = self.earthMat;
+    });
+  };
+
   Realm.prototype.torch = function (x, y, z, rotY, parent, light) {
     this.prop("torch_mounted", x, y, z, rotY, parent);
     var flame = glow(0xff9a3c, 2.2, 0.9);
@@ -244,7 +281,7 @@
     (parent || this.scene).add(flame);
     var item = { flame: flame, seed: Math.random() * 10 };
     if (light) {
-      var l = new THREE.PointLight(0xff8a35, 1.6, 18, 2);
+      var l = new THREE.PointLight(0xff8a35, 2.4, 17, 2);
       l.position.copy(flame.position);
       (parent || this.scene).add(l);
       item.light = l;
@@ -297,10 +334,10 @@
     var coreLight = new THREE.PointLight(0xffb048, 2.2, 22, 2); coreLight.position.set(0, 3.2, 0); castle.add(coreLight);
     this.core = { crystal: crystal, halo: halo, light: coreLight, activity: 0 };
     this.pickBox(castle, 4, 5, 4, { kind: "core" });
-    this.coreLabel = this.label(new THREE.Vector3(0, 5.2, 0), "CodeSift castle", "this machine · waiting for a run");
+    this.coreLabel = this.label(new THREE.Vector3(0, 9.5, -10.5), "CodeSift castle", "this machine · waiting for a run");
 
     // --- the wilds: the project, where findings rise as skeletons
-    for (i = -2; i <= 2; i++) { for (j = 0; j < 4; j++) { this.prop((i + j) % 3 === 0 ? "floor_tile_large_rocks" : "floor_dirt_large", i * 4, -0.02, 14 + j * 4, 0); } }
+    for (i = -2; i <= 2; i++) { for (j = 0; j < 4; j++) { this.earth(this.prop((i * 7 + j * 3) % 11 === 0 ? "floor_tile_large_rocks" : "floor_dirt_large", i * 4, -0.02, 14 + j * 4, (i + j) % 4 * Math.PI / 2)); } }
     this.prop("rubble_large", -13, 0, 22, 0.6);
     this.prop("rubble_large", 13.5, 0, 27, -0.4);
     this.prop("keg_decorated", 12, 0, 15, 0.5);
@@ -312,17 +349,26 @@
     // --- the oracle tower: the LLM gateway
     var tower = new THREE.Group(); tower.position.copy(PLACES.tower); this.scene.add(tower);
     for (i = -1; i <= 1; i++) { for (j = -1; j <= 1; j++) { this.prop("floor_tile_large", i * 4, 0, j * 4, 0, tower); } }
-    this.prop("pillar", 0, 0, -2, 0, tower); this.prop("pillar", 0, 4, -2, 0, tower); this.prop("pillar", 0, 8, -2, 0, tower);
-    this.prop("pillar_decorated", 0, 12, -2, 0, tower);
-    this.prop("banner_patternA_blue", -1.6, 2, -1.2, 0, tower);
-    this.prop("banner_thin_green", 1.6, 6, -1.2, 0, tower);
+    for (var lv = 0; lv < 3; lv++) { // three storeys of walls with corner pillars
+      var y = lv * 4;
+      this.prop(lv === 0 ? "wall_doorway" : "wall_arched", 0, y, 0.5, Math.PI, tower);
+      this.prop("wall", 0, y, -4.5, 0, tower);
+      this.prop(lv === 1 ? "wall_arched" : "wall", -2.5, y, -2, Math.PI / 2, tower);
+      this.prop(lv === 2 ? "wall_arched" : "wall", 2.5, y, -2, -Math.PI / 2, tower);
+      [[-2.5, 0.5], [2.5, 0.5], [-2.5, -4.5], [2.5, -4.5]].forEach(function (c) { self.prop("pillar", c[0], y, c[1], 0, tower); });
+    }
+    this.prop("floor_tile_large", 0, 12.05, -2, 0, tower);
+    this.prop("banner_patternA_blue", -1.4, 4, 1.0, Math.PI, tower);
+    this.prop("banner_thin_green", 1.4, 4, 1.0, Math.PI, tower);
+    this.prop("banner_patternA_blue", 0, 8, -5.0, 0, tower);
+    this.torch(-1.6, 2.2, 1.05, Math.PI, tower, true);
     this.prop("shelf_small_candles", 3.6, 1.2, -5.4, 0, tower);
     this.prop("table_medium", -3.6, 0, 3, 0.4, tower);
     this.prop("candle_triple", -3.6, 1, 3, 0, tower);
     this.torch(-5.5, 2, -5.4, 0, tower, true);
     this.torch(5.5, 2, -5.4, 0, tower, false);
-    this.towerTop = new THREE.Vector3(0, 17.5, -2).add(PLACES.tower);
-    this.pickBox(tower, 6, 17, 6, { kind: "llm" }, 8.5);
+    this.towerTop = new THREE.Vector3(0, 15.2, -2).add(PLACES.tower);
+    var towerBox = this.pickBox(tower, 6, 14, 6, { kind: "llm" }, 7); towerBox.position.z = -2;
     var llm = this.world.topology.llm || {};
     this.towerLabel = this.label(this.towerTop.clone().add(new THREE.Vector3(0, 3, 0)), "Oracle tower", "LLM gateway · " + (llm.host || "not set up"));
 
@@ -349,7 +395,7 @@
     this.dungeonLabel = this.label(PLACES.dungeon.clone().add(new THREE.Vector3(0, 6.5, 0)), "The dungeon", "sandbox VM · " + (vm.host || "not set up"));
 
     // a path of tiles from the castle to the tower and the dungeon
-    for (i = 3; i <= 5; i++) { this.prop("floor_dirt_large", i * 4, -0.03, -4, 0); this.prop("floor_dirt_large", -i * 4, -0.03, -4, 0); }
+    for (i = 3; i <= 5; i++) { this.earth(this.prop("floor_dirt_large", i * 4, -0.03, -4, 0)); this.earth(this.prop("floor_dirt_large", -i * 4, -0.03, -4, 0)); }
   };
 
   // ------------------------------------------------------------------ labels (DOM: crisp at any zoom)
@@ -395,8 +441,8 @@
     return new THREE.Vector3(-8 + col * 4, 0, 15 + row * 4.5);
   }
   function foeSpot(i) {
-    var col = i % 10, row = Math.floor(i / 10);
-    return new THREE.Vector3(-9 + col * 2 + (row % 2) * 1, 0, 19 + row * 2.4);
+    var col = i % 6, row = Math.floor(i / 6);
+    return new THREE.Vector3(-9.5 + col * 3.8 + (row % 2) * 1.9, 0, 16.5 + row * 3.4);
   }
 
   Realm.prototype.hero = function (key, name, cls) {
@@ -405,7 +451,7 @@
     a.cls = cls; a.key = key; a.name = name;
     this.scene.add(a.root);
     a.label = this.label(null, name, cls);
-    a.label.follow = a.root; a.label.offset = 3.1;
+    a.label.follow = a.root; a.label.offset = cls === "Champion" ? 3.9 : 3.1;
     this.pickBox(a.root, 1.6, 2.6, 1.6, key.indexOf("scanner:") === 0 ? { kind: "scanner", key: name } : { kind: "core" });
     a.play("Idle_A");
     this.heroes[key] = a;
@@ -507,7 +553,7 @@
     var color = SPARK[kind] || 0xffc457;
     var head = glow(color, 1.6 + (size || 0) * 1.8, 1);
     var trail = [];
-    for (var i = 0; i < 6; i++) { var t = glow(color, (1.2 + (size || 0)) * (1 - i * 0.13), 0.55 - i * 0.08); trail.push(t); this.scene.add(t); t.visible = false; }
+    for (var i = 0; i < 12; i++) { var t = glow(color, (1.3 + (size || 0)) * (1 - i * 0.07), 0.6 - i * 0.045); trail.push(t); this.scene.add(t); t.visible = false; }
     this.scene.add(head); head.visible = false;
     var a = this.anchor(from), b = this.anchor(to);
     var mid = a.clone().add(b).multiplyScalar(0.5); mid.y += 6 + a.distanceTo(b) * 0.18;
@@ -556,8 +602,9 @@
       var target = h.camp, fighting = false;
       if (s && status === "running") { target = h.wild; fighting = true; }
       if (!s) { // a fix backend: goes to the finding being fixed
-        var f = wd.findings.filter(function (x) { return x.stage && x.stage !== "done" && !x.outcome; })[0];
-        if (f && self.foes[f.id]) { target = self.foes[f.id].spot.clone().add(new THREE.Vector3(0, 0, -1.8)); fighting = true; }
+        // only the backend fixing a finding goes out; it stays on it through policy, sandbox and proof
+        var f = wd.findings.filter(function (x) { return x.backend === h.name && x.stage && x.stage !== "done" && !x.outcome; })[0];
+        if (f && self.foes[f.id]) { target = self.foes[f.id].spot.clone().add(new THREE.Vector3(-1.5, 0, -1.4)); fighting = true; }
       }
       var there = h.walkTo(target, dt, fighting ? 8 : 6);
       if (!there) { h.play("Running_A"); }
@@ -582,15 +629,18 @@
   };
 
   Realm.prototype.updateFoes = function (dt) {
-    var self = this, many = Object.keys(this.foes).length > 12;
+    var self = this;
     Object.keys(this.foes).forEach(function (k) {
       var a = self.foes[k], f = a.finding;
       if (a.risingUntil && self.time > a.risingUntil) { a.risingUntil = 0; a.play("Skeletons_Idle"); }
       var dead = f.outcome && f.outcome.indexOf("fixed") === 0;
       a.ring.material.opacity = dead ? 0.08 : 0.45 + 0.15 * Math.sin(self.time * 3 + a.spot.x);
       if (dead && a.currentName === "Skeletons_Death" && a.current && !a.current.isRunning()) { a.play("Skeletons_Death_Pose", { fade: 0.1 }); }
-      if (!many && !a.label) { a.label = self.label(null, f.id, ""); a.label.follow = a.root; a.label.offset = 2.6 * (FOE[f.severity] || FOE.info).scale + 0.4; a.label.el.classList.add("foe"); }
-      if (a.label) { self.setLabel(a.label, f.id, f.monster + (f.outcome ? " · " + f.outcome.replace(/_/g, " ") : "")); }
+      if (!a.label) { a.label = self.label(null, f.id, ""); a.label.follow = a.root; a.label.offset = 2.6 * (FOE[f.severity] || FOE.info).scale + 0.4; a.label.el.classList.add("foe"); }
+      // a skeleton names itself only while it is fought, just after it rises, or when clicked
+      var fought = f.stage && f.stage !== "done" && !f.outcome;
+      a.label.hidden = !(fought || a.picked || (a.risingUntil && self.time < a.risingUntil + 1.5));
+      self.setLabel(a.label, f.id + " · " + f.severity, f.monster + (fought ? " · " + f.stage : f.outcome ? " · " + f.outcome.replace(/_/g, " ") : ""));
       a.update(dt);
     });
   };
@@ -617,7 +667,7 @@
     this.flickers.forEach(function (f) {
       var k = 0.85 + 0.15 * Math.sin(t * 13 + f.seed) * Math.sin(t * 7.3 + f.seed * 2);
       f.flame.material.opacity = 0.8 * k;
-      if (f.light) { f.light.intensity = 1.6 * k; }
+      if (f.light) { f.light.intensity = 2.4 * k; }
     });
     var c = this.core;
     if (c) {
@@ -641,7 +691,7 @@
       var on = s.t >= 0 && s.t <= 1;
       s.head.visible = on;
       if (on) { s.head.position.copy(s.curve.getPoint(s.t)); }
-      s.trail.forEach(function (tr, i) { var u = s.t - (i + 1) * 0.03; tr.visible = on && u >= 0; if (tr.visible) { tr.position.copy(s.curve.getPoint(u)); } });
+      s.trail.forEach(function (tr, i) { var u = s.t - (i + 1) * 0.014; tr.visible = on && u >= 0; if (tr.visible) { tr.position.copy(s.curve.getPoint(u)); } });
       if (s.t > 1) {
         self.scene.remove(s.head); s.head.material.dispose();
         s.trail.forEach(function (tr) { self.scene.remove(tr); tr.material.dispose(); });
@@ -712,6 +762,7 @@
     if (hits.length && this.selectCb) {
       var p = hits[0].object.userData.pick, self = this;
       Object.keys(this.heroes).forEach(function (k) { self.heroes[k].picked = p.kind === "scanner" && self.heroes[k].name === p.key; });
+      Object.keys(this.foes).forEach(function (k) { self.foes[k].picked = p.kind === "finding" && k === p.key; });
       this.selectCb(p, this.world.info(p));
     }
   };

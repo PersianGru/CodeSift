@@ -137,7 +137,7 @@ patch that does any of the following:
 | `sift validate [PATH] [--patch FILE \| --branch REF] [--finding IDS] [--json]` | prove a change on a copy, in the sandbox |
 | `sift fix [PATH] [--finding IDS] [--min-severity L] [--max-findings N] [--backend B] [--poc none\|project] [--review-patch] [--dry-run] [--json] [--budget-tokens N] [--budget-minutes N]` | AI fixers + deterministic gates; output is a patch |
 | `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI of scans and fixes: fantasy 3D realm, light 2D map or plain table |
-| `sift top [--once] [--ascii]` | live terminal view of the newest scan or fix (game-style HUD; keys: q, ←/→, f, p) |
+| `sift top [--demo] [--once] [--ascii]` | live terminal view of the newest scan or fix (game-style HUD; keys: q, ←/→, f, p) |
 | `sift vm setup \| doctor \| status \| reset \| image pull\|build \| admin-script` | sandbox VM management |
 | `sift report --last` | re-print the latest summary |
 | `sift baseline accept <ID…> --reason "…"` / `list` / `prune` | accepted findings |

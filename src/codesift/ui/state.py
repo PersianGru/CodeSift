@@ -9,7 +9,7 @@ import json
 import re
 import threading
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +43,7 @@ class Runs:
             out.append(
                 {
                     "id": DEMO_ID,
-                    "project": "demo-city",
+                    "project": "demo-realm",
                     "mode": "fix",
                     "started": self.demo.started,
                     "exit_code": None,
@@ -276,86 +276,199 @@ def _gates(outcome: str) -> dict[str, str]:
     return g
 
 
+DEMO_TOOLS = {"F001": "opengrep", "F002": "opengrep", "F003": "bandit", "F004": "opengrep",
+              "F005": "gitleaks", "F006": "osv-scanner", "F007": "ruff"}  # fmt: skip
+# found but not selected for fixing (below the fix threshold)
+DEMO_EXTRA = [
+    ("F008", "docker/Dockerfile", 3, "medium", "glitch", "trivy"),
+    ("F009", ".github/workflows/ci.yml", 12, "medium", "glitch", "zizmor"),
+    ("F010", "app/util/log.py", 7, "low", "glitch", "bandit"),
+    ("F011", "app/util/fmt.py", 19, "low", "glitch", "ruff"),
+    ("F012", "tests/test_api.py", 5, "info", "glitch", "ruff"),
+]
+DEMO_SCANNERS = [  # name, seconds after start it reports, findings, skipped reason
+    ("gitleaks", 2.5, 1, ""),
+    ("ruff", 1.2, 3, ""),
+    ("bandit", 3.5, 2, ""),
+    ("osv-scanner", 5.0, 1, ""),
+    ("trivy", 6.5, 1, ""),
+    ("opengrep", 11.0, 3, ""),
+    ("zizmor", 4.0, 1, ""),
+    ("pip-audit", 0.0, 0, "opt-in (enable in .codesift.toml)"),
+    ("govulncheck", 0.0, 0, "no go.mod"),
+]
+DEMO_PRIMARY = "demo/oracle-large"
+DEMO_FALLBACK = "demo/oracle-small"
+
+
 @dataclass
 class DemoRun:
-    """A synthetic run: no scan, no VM, no model. Events carry the same schema as real runs."""
+    """A synthetic run: no scan, no VM, no model. Events carry the same schema as real runs and come
+    with a delay each (`delays`), so the views can be tuned on a run that uses every kind of event."""
 
     started: str = field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
     events: list[dict[str, Any]] = field(default_factory=list)
+    delays: list[float] = field(default_factory=list)
     patches: dict[str, str] = field(default_factory=dict)
     decisions: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        seq = 0
+        timeline: list[tuple[float, str, str | None, dict[str, Any]]] = []
+        clock = 0.0
 
-        def ev(type_: str, finding: str | None = None, **data: Any) -> None:
-            nonlocal seq
-            e: dict[str, Any] = {
+        def at(when: float, type_: str, finding: str | None = None, **data: Any) -> None:
+            timeline.append((when, type_, finding, data))
+
+        def vm(when: float, op: str, took: float, rc: int = 0, job: str = "") -> None:
+            extra = {"job": job} if job else {}
+            at(when, "vm.command", op=op, **extra)
+            at(when + took, "vm.result", op=op, rc=rc, duration_s=took, **extra)
+
+        def llm(when: float, fid: str | None, purpose: str, chars: int, took: float, out: int,
+                model: str = DEMO_PRIMARY, ok: bool = True, error: str = "") -> None:  # fmt: skip
+            at(when, "llm.request", fid, model=model, prompt_chars=chars, max_tokens=2048, purpose=purpose)
+            reply: dict[str, Any] = {"model": model, "ok": ok, "latency_s": took, "purpose": purpose}
+            if ok:
+                reply.update(tokens_in=chars // 4, tokens_out=out)
+            else:
+                reply["error"] = error
+            at(when + took, "llm.response", fid, **reply)
+
+        topology = {
+            "scanners": [s[0] for s in DEMO_SCANNERS],
+            "llm": {"host": "gateway.demo.invalid", "model": DEMO_PRIMARY, "fallback": DEMO_FALLBACK},
+            "vm": {
+                "host": "10.0.0.42",
+                "user": "codesift",
+                "runtime": "docker",
+                "image": "python:3.12-alpine",
+            },
+        }
+        at(0.0, "run.start", mode="fix", kind="fix", dry_run=False, project="demo-realm", topology=topology)
+        # the scan: each hero rides out, comes back with what it found
+        for name, took, _found, reason in DEMO_SCANNERS:
+            if reason:
+                at(
+                    0.3,
+                    "scanner.result",
+                    name=name,
+                    status="skipped",
+                    findings=0,
+                    duration_s=0,
+                    reason=reason,
+                )
+            else:
+                at(0.6 + DEMO_SCANNERS.index((name, took, _found, reason)) * 0.25, "scanner.start", name=name)
+        for name, took, found, reason in DEMO_SCANNERS:
+            if not reason:
+                at(
+                    1.5 + took,
+                    "scanner.result",
+                    name=name,
+                    status="ok",
+                    findings=found,
+                    duration_s=took,
+                    reason="",
+                )
+        clock = 13.5
+        findings = [(f[0], f[1], f[2], f[3], f[4], f[5], f[6], DEMO_TOOLS[f[0]]) for f in DEMO_FINDINGS]
+        findings += [(e[0], e[1], e[2], e[3], e[4], "app", [], e[5]) for e in DEMO_EXTRA]
+        for i, (fid, path, line, sev, bug, district, cwe, tool) in enumerate(findings):
+            at(clock + i * 0.35, "finding.detected", fid, path=path, line=line, category=bug, cwe=cwe,
+               severity=sev, bug_type=bug, district=district, rule="demo:" + bug, tool=tool)  # fmt: skip
+        clock += len(findings) * 0.35 + 0.5
+        # triage: one question per serious finding; one times out and the fallback answers
+        for i, f in enumerate(DEMO_FINDINGS):
+            fid = f[0]
+            if fid == "F004":
+                llm(clock, fid, "triage", 5200, 6.0, 0, ok=False, error="timeout")
+                llm(clock + 6.2, fid, "triage", 5200, 1.4, 64, model=DEMO_FALLBACK)
+                clock += 8.0
+            else:
+                llm(clock, fid, "triage", 3800 + i * 400, 1.2 + (i % 3) * 0.6, 90 + i * 12)
+                clock += 1.6 + (i % 3) * 0.6
+        # the sandbox wakes up
+        vm(clock, "free memory", 0.4)
+        vm(clock + 0.5, "runtime version", 0.3)
+        vm(clock + 0.9, "image check", 0.6)
+        at(clock + 1.6, "selftest.result", passed=True, cached=False)
+        clock += 2.2
+        used = 0
+        jobs = 0
+        for fid, _path, _line, _sev, _bug, _d, _cwe, outcome, backends in DEMO_FINDINGS:
+            at(clock, "finding.selected", fid)
+            at(clock, "stage.enter", fid, stage="triage")
+            at(clock + 0.2, "stage.exit", fid, stage="triage")
+            clock += 0.4
+            for n, backend in enumerate(backends, start=1):
+                at(clock, "stage.enter", fid, stage="fix", backend=backend, attempt=n)
+                at(clock, "fix.attempt", fid, backend=backend, attempt=n)
+                if backend == "gateway":
+                    llm(clock + 0.2, fid, "fix", 14000, 4.5, 900)
+                clock += 5.0
+                used += 4400
+                at(clock, "fix.result", fid, backend=backend, attempt=n, ok=True)
+                at(
+                    clock,
+                    "budget.update",
+                    tokens_used=used,
+                    tokens_limit=200000,
+                    time_limit_s=3600,
+                    exhausted=False,
+                )
+                at(clock, "stage.exit", fid, stage="fix")
+                clock += 0.3
+            gates = _gates(outcome)
+            if backends:
+                at(clock, "stage.enter", fid, stage="policy")
+                ok = gates["policy"] == "pass"
+                at(clock + 0.3, "policy.verdict", fid, ok=ok, codes=[] if ok else ["touches_lockfile"])
+                at(clock + 0.4, "stage.exit", fid, stage="policy")
+                clock += 0.6
+            if gates["policy"] == "pass" or outcome == "inconclusive":
+                at(clock, "stage.enter", fid, stage="sandbox")
+                for label in ("tests-before", "tests-after", f"poc-after-{fid}"):
+                    jobs += 1
+                    job = f"{0xC0FFEE00 + jobs:08x}"
+                    took = 2.0 + (jobs % 3) * 0.8
+                    rc = 1 if (label.startswith("tests-after") and outcome == "rejected_tests") else 0
+                    at(clock, "sandbox.start", fid, label=label)
+                    vm(clock + 0.1, "job", took, rc=rc, job=job)
+                    at(clock + took + 0.2, "sandbox.result", fid, rc=rc, duration_s=took, label=label)
+                    clock += took + 0.5
+                at(clock, "stage.exit", fid, stage="sandbox")
+                at(clock, "stage.enter", fid, stage="verify")
+                for gate in ("poc", "tests", "rescan"):
+                    clock += 0.4
+                    at(clock, "verify.result", fid, gate=gate, status=gates[gate])
+                at(clock, "stage.exit", fid, stage="verify")
+            clock += 0.5
+            at(clock, "finding.outcome", fid, outcome=outcome)
+            clock += 1.0
+            if outcome.startswith("fixed"):
+                self.patches[fid] = (
+                    f"diff --git a/{_path} b/{_path}\n--- a/{_path}\n+++ b/{_path}\n@@ -1,1 +1,1 @@\n"
+                    f"-unsafe_call(user_input)  # demo\n+safe_call(validated(user_input))  # demo\n"
+                )
+        at(clock + 0.5, "run.end", exit_code=1)
+
+        timeline.sort(key=lambda e: e[0])  # stable: same-time events keep their order
+        base = datetime.strptime(self.started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        last = 0.0
+        for seq, (when, type_, finding, data) in enumerate(timeline):
+            ev: dict[str, Any] = {
                 "v": 1,
-                "ts": self.started,
+                "ts": (base + timedelta(seconds=when)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "run": DEMO_ID,
                 "seq": seq,
                 "type": type_,
                 "data": data,
             }
             if finding:
-                e["finding"] = finding
-            self.events.append(e)
-            seq += 1
-
-        ev("run.start", mode="fix", dry_run=False, project="demo-city")
-        ev("selftest.result", passed=True, cached=False)
-        for fid, path, line, sev, bug, district, cwe, _o, _b in DEMO_FINDINGS:
-            ev("finding.selected", fid)
-            ev(
-                "finding.detected",
-                fid,
-                path=path,
-                line=line,
-                category=bug,
-                cwe=cwe,
-                severity=sev,
-                bug_type=bug,
-                district=district,
-                rule="demo:" + bug,
-            )
-        used = 0
-        for fid, path, _line, _sev, _bug, _d, _cwe, outcome, backends in DEMO_FINDINGS:
-            ev("stage.enter", fid, stage="triage")
-            ev("stage.exit", fid, stage="triage")
-            for n, backend in enumerate(backends, start=1):
-                ev("stage.enter", fid, stage="fix", backend=backend, attempt=n)
-                ev("fix.attempt", fid, backend=backend, attempt=n)
-                used += 1800
-                ev("fix.result", fid, backend=backend, attempt=n, ok=True)
-                ev("budget.update", tokens_used=used, tokens_limit=200000, time_limit_s=3600, exhausted=False)
-                ev("stage.exit", fid, stage="fix")
-            gates = _gates(outcome)
-            if backends:
-                ev("stage.enter", fid, stage="policy")
-                ev(
-                    "policy.verdict",
-                    fid,
-                    ok=gates["policy"] == "pass",
-                    codes=[] if gates["policy"] == "pass" else ["touches_lockfile"],
-                )
-                ev("stage.exit", fid, stage="policy")
-            if gates["policy"] == "pass" or outcome == "inconclusive":
-                ev("stage.enter", fid, stage="sandbox")
-                ev("sandbox.start", fid, label=f"poc-after-{fid}")
-                ev("sandbox.result", fid, rc=1, duration_s=2.4, label=f"poc-after-{fid}")
-                ev("stage.exit", fid, stage="sandbox")
-                ev("stage.enter", fid, stage="verify")
-                for gate in ("poc", "tests", "rescan"):
-                    ev("verify.result", fid, gate=gate, status=gates[gate])
-                ev("stage.exit", fid, stage="verify")
-            ev("finding.outcome", fid, outcome=outcome)
-            if outcome.startswith("fixed"):
-                self.patches[fid] = (
-                    f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,1 +1,1 @@\n"
-                    f"-unsafe_call(user_input)  # demo\n+safe_call(validated(user_input))  # demo\n"
-                )
-        ev("run.end", exit_code=1)
+                ev["finding"] = finding
+            self.events.append(ev)
+            self.delays.append(max(0.0, when - last))
+            last = when
 
     def report(self) -> dict[str, Any]:
         findings = []
@@ -375,18 +488,24 @@ class DemoRun:
                         {"backend": b, "attempt": i + 1, "result": outcome} for i, b in enumerate(backends)
                     ],
                     "patch": f"{fid}.patch" if fid in self.patches else None,
+                    "tool": DEMO_TOOLS[fid],
                 }
             )
+        for fid, path, line, sev, bug, tool in DEMO_EXTRA:
+            findings.append(
+                {"id": fid, "severity": sev, "path": path, "line": line, "rule": "demo:" + bug, "tool": tool,
+                 "bug_type": bug, "gates": {}, "attempts": [], "patch": None}
+            )  # fmt: skip
         return {
             "schema": 1,
             "run": {
                 "id": DEMO_ID,
                 "mode": "fix",
-                "project": "demo-city",
+                "project": "demo-realm",
                 "started": self.started,
                 "exit_code": 1,
             },
-            "budget": {"tokens_used": 1800 * 7, "tokens_limit": 200000, "exhausted": False},
+            "budget": {"tokens_used": 4400 * 8, "tokens_limit": 200000, "exhausted": False},
             "sandbox": {"state": "demo (no VM)"},
             "findings": findings,
             "districts": DISTRICT_NAMES,

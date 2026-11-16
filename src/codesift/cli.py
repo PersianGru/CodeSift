@@ -253,6 +253,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--once", action="store_true", help="print one frame and exit (no keys, no screen switch)")
     p.add_argument("--ascii", action="store_true", help="plain ASCII glyphs for terminals without Unicode")
+    p.add_argument("--demo", action="store_true", help="play a synthetic run: no scan, no VM, no model")
 
     p = sub.add_parser("report", help="re-print the latest summary for the current project")
     p.add_argument("--last", action="store_true", help="the latest run (default)")
@@ -618,10 +619,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             runs.demo = DemoRun()
         return run_ui(runs, port=args.port or 0, open_browser=args.open, ci=args.ci)
     if args.command == "top":
+        from codesift.ui.state import DemoRun as TopDemo
         from codesift.ui.state import Runs as TopRuns
         from codesift.ui.top import run_top
 
-        return run_top(TopRuns(get_paths()), once=args.once, ascii_only=args.ascii)
+        top_runs = TopRuns(get_paths(), demo=TopDemo() if args.demo else None)
+        return run_top(top_runs, once=args.once, ascii_only=args.ascii)
     if args.command == "fix":
         import os
 

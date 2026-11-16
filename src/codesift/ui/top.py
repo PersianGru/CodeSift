@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from itertools import accumulate
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -175,7 +176,7 @@ class Board:
             self.llm_fallback = str(llm.get("fallback", ""))
             vm = _dict(topo.get("vm"))
             self.vm_host, self.vm_runtime = str(vm.get("host", "")), str(vm.get("runtime", ""))
-            return [("RAID BEGINS ", "title"), (f"{self.kind} {self.mode} · {self.project}", "text")]
+            return [("RAID BEGINS ", "title"), (f"{_what(self.kind, self.mode)} · {self.project}", "text")]
         if kind == "run.end":
             self.ended = ts
             code = d.get("exit_code")
@@ -308,6 +309,11 @@ def _fate(outcome: str) -> str:
     if outcome in OUTCOMES:
         return OUTCOMES[outcome]
     return "escaped" if outcome.startswith("rejected") else outcome.replace("_", " ")
+
+
+def _what(kind: str, mode: str) -> str:
+    """'scan full', 'fix' (not 'fix fix')."""
+    return kind if mode in ("", kind) else f"{kind} {mode}"
 
 
 def _class(name: str) -> str:
@@ -554,7 +560,7 @@ def _header(
         ("╔═ ", "border"),
         ("CODESIFT", "title"),
         (" ═ ", "border"),
-        (f"{b.project or '-'} · {b.kind} {b.mode}".strip(), "text"),
+        (f"{b.project or '-'} · {_what(b.kind, b.mode)}".strip(), "text"),
         (" ═ ", "border"),
         status,
         (f"  {_clock(took)}", "gold"),
@@ -667,14 +673,25 @@ class Follower:
     board: Board = field(default_factory=Board)
     _offset: int = 0
     _path: Path | None = None
+    _demo_start: float = 0.0
+    _demo_seen: float = 0.0
 
     def refresh(self) -> None:
+        if self.runs.demo is not None:  # `--demo`: only the synthetic run, played at its own pace
+            if not self.current:
+                self.ids = ["demo"]
+                self.open("demo")
+            return
         self.ids = [r["id"] for r in self.runs.list_runs() if r["id"] not in ("demo", "replay")]
         if self.ids and (not self.current or (self.follow and self.current != self.ids[0])):
             self.open(self.ids[0])
 
     def open(self, rid: str) -> None:
         self.current, self.board, self._offset = rid, Board(run_id=rid), 0
+        if rid == "demo":
+            self._path, self._demo_start, self._demo_seen = None, self.clock(), 0.0
+            self.pump()
+            return
         try:
             self._path = self.runs.resolve(rid) / "events.jsonl"
         except StateError:
@@ -690,6 +707,22 @@ class Follower:
         self.open(self.ids[i])
 
     def pump(self, instant: bool = False) -> None:
+        demo = self.runs.demo
+        if self.current == "demo" and demo is not None:
+            now = self.clock()
+            if self.paused:  # a paused demo waits instead of jumping ahead afterwards
+                self._demo_start += now - (self._demo_seen or now)
+                self._demo_seen = now
+                return
+            self._demo_seen = now
+            due = list(accumulate(demo.delays))
+            while self._offset < len(demo.events) and due[self._offset] <= now - self._demo_start:
+                stamped = dict(
+                    demo.events[self._offset], ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                )
+                self.board.apply(stamped, now)
+                self._offset += 1
+            return
         if self._path is None or (self.paused and not instant):
             return
         events, self._offset = read_events(self._path, self._offset)

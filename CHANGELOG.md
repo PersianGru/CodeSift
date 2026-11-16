@@ -13,6 +13,9 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
   findings rise as skeletons, the LLM gateway is an oracle tower, the sandbox VM is a dungeon) with
   animated KayKit characters (CC0); **2D**, a light canvas map without WebGL for low memory; and
   **Table**. three.js and the models load only for the 3D view.
+- `sift ui --demo` and `sift top --demo` play a richer synthetic run (about 2.5 minutes): scanners,
+  findings of every severity, LLM calls with a timeout and a fallback, sandbox jobs, fixes and their
+  outcomes. Clearly a demo: no scan, no VM and no model is contacted.
 
 ### Changed
 - `sift ui` shows the real run instead of the "living city": this machine with the run's scanners,

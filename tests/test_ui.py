@@ -301,3 +301,26 @@ def test_kaykit_models_are_what_the_realm_uses() -> None:
     )
     for m in models | {"knight", "rogue_hooded", "skeleton_mage"}:
         assert _glb_json(f"kaykit-{m}.glb")["skins"], m  # rigged, so the clips can drive it
+
+
+def test_demo_run_uses_every_kind_of_activity() -> None:
+    from codesift.validate.events import validate_event
+
+    demo = DemoRun()
+    assert len(demo.events) == len(demo.delays) and all(d >= 0 for d in demo.delays)
+    for ev in demo.events:
+        validate_event(ev)
+    types = {e["type"] for e in demo.events}
+    assert {
+        "scanner.start",
+        "scanner.result",
+        "llm.request",
+        "llm.response",
+        "vm.command",
+        "vm.result",
+    } <= types
+    assert {"fix.attempt", "verify.result", "finding.outcome", "selftest.result"} <= types
+    assert any(e["type"] == "llm.response" and not e["data"]["ok"] for e in demo.events)  # a failure too
+    severities = {e["data"]["severity"] for e in demo.events if e["type"] == "finding.detected"}
+    assert severities == {"critical", "high", "medium", "low", "info"}
+    assert 60 < sum(demo.delays) < 400  # long enough to watch, short enough to tune
