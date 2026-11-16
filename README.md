@@ -10,7 +10,7 @@ LLM gateway, the Claude CLI or the Claude API) propose patches. Then determinist
 whether a patch works: a mechanical patch policy, your project's tests and proofs of concept run in a
 **disposable, network-less container on a separate sandbox VM**, and a re-scan. The output is a
 patch for you to review. Nothing is ever applied, merged or pushed automatically. `sift ui` shows
-runs as a neon "living city" or as a plain dashboard.
+runs live as a 3D map of the real scanners, models and sandbox VM, or as a plain dashboard.
 
 > **Status: v0.2.0** (2026-11-14). See [CHANGELOG.md](CHANGELOG.md),
 > [docs/validate-implementation-report.md](docs/validate-implementation-report.md) and the
@@ -135,7 +135,7 @@ patch that does any of the following:
 | `sift scan [PATH]` | detect → scanners → normalize/dedupe → baseline → LLM triage → report |
 | `sift validate [PATH] [--patch FILE \| --branch REF] [--finding IDS] [--json]` | prove a change on a copy, in the sandbox |
 | `sift fix [PATH] [--finding IDS] [--min-severity L] [--max-findings N] [--backend B] [--poc none\|project] [--review-patch] [--dry-run] [--json] [--budget-tokens N] [--budget-minutes N]` | AI fixers + deterministic gates; output is a patch |
-| `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI (living city + plain dashboard) |
+| `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI: live 3D system map of scans and fixes + plain dashboard |
 | `sift vm setup \| doctor \| status \| reset \| image pull\|build \| admin-script` | sandbox VM management |
 | `sift report --last` | re-print the latest summary |
 | `sift baseline accept <ID…> --reason "…"` / `list` / `prune` | accepted findings |
@@ -199,7 +199,7 @@ Created by `sift init`. It holds:
 - `[validate]`: the test command, sandbox image, timeout, `never_send` globs, `allowed_fix_paths`
   and `max_patch_lines`;
 - `[validate.poc]`: PoC commands per CWE (exit 0 = reproduced);
-- `[ui.districts]`: path prefixes for the city's districts.
+- `[ui.districts]`: path prefixes used to group findings by area (`events.jsonl` `district`).
 
 Accepted findings live in `.codesift-baseline.json`.
 
@@ -270,7 +270,7 @@ Run `sift doctor`; every failing check prints a fix. Common cases:
 | [ruff](https://github.com/astral-sh/ruff), [bandit](https://github.com/PyCQA/bandit) | Python security lint | MIT / Apache-2.0 |
 | [zizmor](https://github.com/zizmorcore/zizmor) | GitHub Actions workflow security | MIT |
 | pip-audit, composer audit, govulncheck (opt-in) | extra dependency checks | Apache-2.0 / MIT / BSD-3-Clause |
-| [three.js](https://github.com/mrdoob/three.js) r128 (vendored) | the `sift ui` 3D city | MIT |
+| [three.js](https://github.com/mrdoob/three.js) r128 + bloom / environment add-ons (vendored) | the `sift ui` 3D system map | MIT |
 | OpenSSH (system) | transport to the sandbox VM | BSD |
 
 Any OpenAI-compatible LLM gateway works for triage and the gateway fixer. CodeSift itself is Python

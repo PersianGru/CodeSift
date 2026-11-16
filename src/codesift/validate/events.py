@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -39,6 +40,13 @@ TYPES = frozenset(
         "budget.update",
         "selftest.result",
         "error",
+        # real activity (both scan and fix runs): scanners, LLM calls, VM commands
+        "scanner.start",
+        "scanner.result",
+        "llm.request",
+        "llm.response",
+        "vm.command",
+        "vm.result",
     }
 )
 STAGES = frozenset({"triage", "fix", "policy", "sandbox", "verify", "judge"})
@@ -66,6 +74,12 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "policy.verdict": ("ok",),
     "fix.attempt": ("backend", "attempt"),
     "fix.result": ("backend", "attempt", "ok"),
+    "scanner.start": ("name",),
+    "scanner.result": ("name", "status", "findings", "duration_s"),
+    "llm.request": ("model",),
+    "llm.response": ("model", "ok", "latency_s"),
+    "vm.command": ("op",),
+    "vm.result": ("op", "rc", "duration_s"),
 }
 FINDING_TYPES = frozenset(
     {
@@ -178,7 +192,7 @@ def _clean(value: Any, redactor: Redactor, depth: int = 0) -> Any:
         return text if len(text) <= MAX_STRING else text[: MAX_STRING - 1] + "…"
     if isinstance(value, list | tuple):
         return [_clean(v, redactor, depth + 1) for v in list(value)[:MAX_LIST]]
-    if isinstance(value, dict) and depth < 2:
+    if isinstance(value, dict) and depth < 3:
         return {str(k)[:40]: _clean(v, redactor, depth + 1) for k, v in list(value.items())[:MAX_LIST]}
     raise EventError(f"unsupported event value type {type(value).__name__}")
 
@@ -225,6 +239,12 @@ class EventLog:
         self.seq = 0
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def note(self, type_: str, finding: str | None = None, /, **data: Any) -> None:
+        """Like `emit`, for runs where events only feed the UI: a bad event or a full disk is dropped
+        instead of stopping the run."""
+        with suppress(EventError, OSError):
+            self.emit(type_, finding, **data)
 
     def emit(self, type_: str, finding: str | None = None, /, **data: Any) -> dict[str, Any]:
         with self._lock:

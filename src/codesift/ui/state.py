@@ -17,7 +17,7 @@ from codesift.paths import Paths
 from codesift.redact import Redactor
 from codesift.validate.events import DISTRICT_NAMES, read_events
 
-RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}~[A-Za-z0-9._-]{1,80}$")
+RUN_ID = re.compile(r"^(scan|fix)~([A-Za-z0-9._-]{1,80})~([A-Za-z0-9._-]{1,80})$")
 FINDING_ID = re.compile(r"^(?:[A-Z]{1,8}[0-9]{1,6}|combined)$")
 ACTIONS = ("approve", "reject", "retry")
 MAX_NOTE = 500
@@ -51,43 +51,63 @@ class Runs:
             )
         if self.replay_dir is not None:
             out.append(self._summary(REPLAY_ID, self.replay_dir))
-        base = self.paths.validate_runs
-        if base.is_dir():
+        found: list[dict[str, Any]] = []
+        for kind, base in (("fix", self.paths.validate_runs), ("scan", self.paths.runs)):
+            if not base.is_dir():
+                continue
             for slug in sorted(base.iterdir()):
-                if not slug.is_dir() or slug.name.startswith("_"):
+                if (
+                    not slug.is_dir()
+                    or slug.name.startswith("_")
+                    or not RUN_ID.match(f"{kind}~{slug.name}~x")
+                ):
                     continue
                 for run in sorted(slug.iterdir(), reverse=True)[:20]:
+                    if not run.is_dir() or run.name == "latest":
+                        continue
                     if (run / "fix-report.json").is_file() or (run / "events.jsonl").is_file():
-                        out.append(self._summary(f"{slug.name}~{run.name}", run))
-        return out[:200]
+                        found.append(self._summary(f"{kind}~{slug.name}~{run.name}", run))
+        found.sort(key=lambda r: str(r["started"]), reverse=True)  # newest first, scans and fixes mixed
+        return (out + found)[:200]
 
     def _summary(self, rid: str, run: Path) -> dict[str, Any]:
         report = _read_json(run / "fix-report.json") or {}
         info = report.get("run", {}) if isinstance(report, dict) else {}
+        first = _first_event(run / "events.jsonl")
+        start = first.get("data", {}) if first.get("type") == "run.start" else {}
+        live = (run / "events.jsonl").is_file() and not _has_end(run / "events.jsonl")
         return {
             "id": rid,
-            "project": info.get("project", run.parent.name),
-            "mode": info.get("mode", "?"),
-            "started": info.get("started", run.name),
+            "kind": rid.split("~", 1)[0] if "~" in rid else "fix",
+            "project": info.get("project") or start.get("project") or run.parent.name,
+            "mode": info.get("mode") or start.get("mode") or "?",
+            "started": info.get("started") or first.get("ts") or run.name,
             "exit_code": info.get("exit_code"),
+            "live": live,
         }
 
     def resolve(self, rid: str) -> Path:
         if rid == REPLAY_ID and self.replay_dir is not None:
             return self.replay_dir
-        if not RUN_ID.match(rid):
+        m = RUN_ID.match(rid)
+        if not m:
             raise StateError("unknown run")
-        slug, run = rid.split("~", 1)
-        path = (self.paths.validate_runs / slug / run).resolve()
-        if not path.is_relative_to(self.paths.validate_runs.resolve()) or not path.is_dir():
+        kind, slug, run = m.groups()
+        base = (self.paths.validate_runs if kind == "fix" else self.paths.runs).resolve()
+        path = (base / slug / run).resolve()
+        if not path.is_relative_to(base) or not path.is_dir():
             raise StateError("unknown run")
         return path
 
     def report(self, rid: str) -> dict[str, Any]:
         if rid == DEMO_ID and self.demo is not None:
             return self.demo.report()
-        data = _read_json(self.resolve(rid) / "fix-report.json")
-        return data if isinstance(data, dict) else {}
+        run = self.resolve(rid)
+        data = _read_json(run / "fix-report.json")
+        if isinstance(data, dict):
+            return data
+        scan = _read_json(run / "report.json")
+        return scan_view(scan) if isinstance(scan, dict) else {}
 
     def events_text(self, rid: str) -> str:
         if rid == DEMO_ID and self.demo is not None:
@@ -138,6 +158,57 @@ class Runs:
             return list(self.demo.decisions)
         data = _read_json(self.resolve(rid) / "decisions.json")
         return list(data.get("decisions", [])) if isinstance(data, dict) else []
+
+
+def scan_view(report: dict[str, Any]) -> dict[str, Any]:
+    """A scan's report.json in the shape the UI reads (findings with id/severity/path/line/rule)."""
+    findings: list[dict[str, Any]] = []
+    for f in report.get("findings", []):
+        if not isinstance(f, dict):
+            continue
+        findings.append(
+            {
+                "id": f.get("id"),
+                "severity": f.get("severity"),
+                "path": f.get("path"),
+                "line": f.get("line"),
+                "rule": ", ".join(f.get("rules", [])[:3]) if isinstance(f.get("rules"), list) else "",
+                "tool": f.get("tool"),
+                "verdict": (
+                    (f.get("triage") or {}).get("verdict", "") if isinstance(f.get("triage"), dict) else ""
+                ),
+                "gates": {},
+            }
+        )
+    run = report.get("run", {}) if isinstance(report.get("run"), dict) else {}
+    return {
+        "schema": 1,
+        "kind": "scan",
+        "run": run,
+        "findings": findings,
+        "scanners": report.get("scanners", []),
+    }
+
+
+def _first_event(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("rb") as fh:
+            line = fh.readline(65536)
+        data = json.loads(line.decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, UnicodeDecodeError):
+        return {}
+
+
+def _has_end(path: Path) -> bool:
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 4096))
+            return b'"run.end"' in fh.read()
+    except OSError:
+        return True
 
 
 def _read_json(path: Path) -> Any:

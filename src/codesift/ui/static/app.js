@@ -1,15 +1,14 @@
-/* CodeSift UI: loads runs, streams events, keeps the finding store, drives city + dashboard. */
+/* CodeSift UI: lists runs (scans and fixes), follows the live one, streams its events into the system
+   map and the dashboard. Everything shown comes from the run's own events.jsonl and report. */
 (function () {
   "use strict";
 
-  var NAMES = {
-    sqli: "Syringe leech (SQL injection)", xss: "Mask imp (XSS)", cmdi: "Shell wraith (command injection)",
-    traversal: "Tunnel worm (path traversal)", secret: "Key thief (secret)", dependency: "Rotten crate (dependency)",
-    glitch: "Glitch (other)"
-  };
-  var COLORS = { sqli: "#ff8a8a", xss: "#e879f9", cmdi: "#f5a524", traversal: "#a78bfa", secret: "#7dd3fc", dependency: "#bef264", glitch: "#5eead4" };
+  var SEVERITIES = ["critical", "high", "medium", "low", "info"];
+  var SEV_COLORS = { critical: "#ff5c5c", high: "#ff8a8a", medium: "#f5a524", low: "#7aa2ff", info: "#9aa0aa" };
+  var POLL_MS = 3000;
 
-  var state = { run: null, config: {}, findings: {}, order: [], history: [], city: null, source: null, stats: { health: 100, repaired: 0, landfill: 0, limbo: 0, tokens: 0 }, hatch: 100 };
+  var state = { run: null, runs: [], pinned: false, config: {}, findings: {}, order: [], history: [], map: null, source: null,
+    stats: { findings: 0, llmCalls: 0, llmFailed: 0, tokensIn: 0, tokensOut: 0, vmJobs: 0, scanners: 0 }, started: null, ended: null };
   var $ = function (id) { return document.getElementById(id); };
 
   function text(node, value) { node.textContent = String(value); }
@@ -29,16 +28,27 @@
     return state.findings[id];
   }
 
+  function fmtTokens(n) { return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n); }
+
+  function elapsed() {
+    if (!state.started) { return "-"; }
+    var end = state.ended ? Date.parse(state.ended) : Date.now();
+    var s = Math.max(0, Math.round((end - Date.parse(state.started)) / 1000));
+    return s >= 60 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : s + "s";
+  }
+
   function render() {
     var list = state.order.map(function (id) { return state.findings[id]; });
     dashboard.render(list, state.stats);
-    text($("stat-health"), state.stats.health + "%");
-    text($("stat-repaired"), state.stats.repaired);
-    text($("stat-landfill"), state.stats.landfill);
-    text($("stat-limbo"), state.stats.limbo);
-    text($("stat-tokens"), state.stats.tokens);
-    renderLegend();
-    if (state.city) { text($("city-alt"), state.city.describe()); }
+    var st = state.stats;
+    text($("stat-findings"), st.findings);
+    text($("stat-scanners"), st.scanners);
+    text($("stat-llm"), st.llmCalls + (st.llmFailed ? " (" + st.llmFailed + " failed)" : ""));
+    text($("stat-tokens"), fmtTokens(st.tokensIn) + " / " + fmtTokens(st.tokensOut));
+    text($("stat-jobs"), st.vmJobs);
+    text($("stat-time"), elapsed());
+    renderSeverities();
+    if (state.map) { text($("city-alt"), state.map.describe()); }
   }
 
   var renderQueued = false;
@@ -48,41 +58,56 @@
     setTimeout(function () { renderQueued = false; render(); }, 150);
   }
 
-  function renderLegend() {
+  function renderSeverities() {
     var ul = $("legend");
     while (ul.firstChild) { ul.removeChild(ul.firstChild); }
-    Object.keys(NAMES).forEach(function (type) {
+    SEVERITIES.forEach(function (sev) {
+      var n = state.order.filter(function (id) { return state.findings[id].severity === sev; }).length;
       var li = document.createElement("li");
       var sw = document.createElement("span");
       sw.className = "swatch";
-      sw.style.background = COLORS[type];
+      sw.style.background = SEV_COLORS[sev];
       li.appendChild(sw);
-      li.appendChild(document.createTextNode(NAMES[type]));
+      li.appendChild(document.createTextNode(sev));
       var count = document.createElement("span");
       count.className = "count";
-      count.textContent = String(state.order.filter(function (id) { return state.findings[id].bug_type === type; }).length);
+      count.textContent = String(n);
       li.appendChild(count);
-      if (state.config.demo && state.run === "demo") {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.textContent = "hatch";
-        b.setAttribute("aria-label", "Hatch a demo " + NAMES[type]);
-        b.addEventListener("click", function () { hatch(type); });
-        li.appendChild(b);
-      }
       ul.appendChild(li);
     });
   }
 
+  function describe(ev) {
+    var d = ev.data || {};
+    switch (ev.type) {
+      case "run.start": return "run started · " + (d.kind || d.mode || "") + " · " + (d.project || "");
+      case "run.end": return "run finished · exit " + d.exit_code;
+      case "scanner.start": return d.name + " started";
+      case "scanner.result": return d.name + " " + d.status + (d.status === "ok" ? " · " + d.findings + " found · " + (d.duration_s || 0).toFixed(1) + "s" : d.reason ? " · " + d.reason : "");
+      case "llm.request": return "→ " + d.model + (d.purpose ? " · " + d.purpose : "") + (ev.finding ? " " + ev.finding : "") + " · " + fmtTokens(Math.round((d.prompt_chars || 0) / 4)) + " tok (est)";
+      case "llm.response": return "← " + d.model + (d.ok ? " · " + (d.tokens_out || 0) + " tok · " + (d.latency_s || 0).toFixed(1) + "s" : " · failed: " + (d.error || "?"));
+      case "vm.command": return "VM: " + d.op + (d.job ? " sift-" + d.job : "");
+      case "vm.result": return "VM: " + d.op + (d.job ? " sift-" + d.job : "") + " · rc " + d.rc + " · " + (d.duration_s || 0).toFixed(1) + "s";
+      case "finding.detected": return (ev.finding || "") + " " + d.severity + " · " + d.path + (d.line ? ":" + d.line : "");
+      default: {
+        var detail = d.outcome || d.stage || d.backend || d.gate || (d.rc !== undefined ? "rc " + d.rc : "") || "";
+        return (ev.finding ? ev.finding + " " : "") + ev.type + (detail ? " · " + detail : "") + (d.status ? " " + d.status : "");
+      }
+    }
+  }
+
+  var LOG_CLASS = { "llm.request": "k-llm", "llm.response": "k-reply", "vm.command": "k-vm", "vm.result": "k-vm",
+    "scanner.start": "k-scan", "scanner.result": "k-scan", "finding.outcome": "important", "error": "k-fail", "run.end": "important", "run.start": "important" };
+
   function log(ev) {
     var ol = $("event-log");
     var li = document.createElement("li");
+    var ts = (ev.ts || "").slice(11, 19);
+    li.textContent = (ts ? ts + "  " : "") + describe(ev);
     var d = ev.data || {};
-    var detail = d.outcome || d.stage || d.backend || d.gate || (d.rc !== undefined ? "rc " + d.rc : "") || "";
-    li.textContent = (ev.finding ? ev.finding + " " : "") + ev.type + (detail ? " · " + detail : "") + (d.status ? " " + d.status : "");
-    if (ev.type === "finding.outcome" || ev.type === "error" || ev.type === "run.end") { li.className = "important"; }
+    li.className = (d.ok === false || (ev.type === "vm.result" && d.rc !== 0) || d.status === "error") ? "k-fail" : (LOG_CLASS[ev.type] || "");
     ol.insertBefore(li, ol.firstChild);
-    while (ol.childNodes.length > 200) { ol.removeChild(ol.lastChild); }
+    while (ol.childNodes.length > 300) { ol.removeChild(ol.lastChild); }
   }
 
   function apply(ev) {
@@ -90,121 +115,95 @@
     if (ev.finding) {
       var f = finding(ev.finding);
       if (ev.type === "finding.detected") {
-        f.path = d.path; f.line = d.line; f.severity = d.severity; f.bug_type = d.bug_type; f.district = d.district;
+        f.path = d.path; f.line = d.line; f.severity = d.severity; f.bug_type = d.bug_type; f.district = d.district; f.tool = d.tool;
       }
       if (ev.type === "stage.enter") { f.stage = d.stage; }
       if (ev.type === "fix.attempt") { f.backend = d.backend; f.stage = "fix"; }
       if (ev.type === "policy.verdict") { f.gates.policy = d.ok ? "pass" : "fail"; }
       if (ev.type === "verify.result") { f.gates[d.gate] = d.status; }
       if (ev.type === "finding.outcome") { f.outcome = d.outcome; f.stage = "done"; }
+      if (ev.type === "llm.request" && d.purpose === "triage") { f.stage = "triage"; }
     }
-    if (ev.type === "budget.update") { state.stats.tokens = d.tokens_used || 0; }
-    if (state.history.length < 20000) { state.history.push(ev); }
-    if (state.city) { state.city.handle(ev); }
+    if (ev.type === "run.start") { state.started = ev.ts; }
+    if (ev.type === "run.end") { state.ended = ev.ts; }
+    if (state.history.length < 50000) { state.history.push(ev); }
+    if (state.map) { state.map.handle(ev); } else { countStats(ev); }
     log(ev);
     scheduleRender();
   }
 
+  // Without WebGL the map is absent: keep the same counters here.
+  function countStats(ev) {
+    var d = ev.data || {}, st = state.stats;
+    if (ev.type === "finding.detected") { st.findings += 1; }
+    if (ev.type === "scanner.result" && d.status !== "skipped") { st.scanners += 1; }
+    if (ev.type === "llm.response") { st.llmCalls += 1; if (!d.ok) { st.llmFailed += 1; } st.tokensIn += d.tokens_in || 0; st.tokensOut += d.tokens_out || 0; }
+    if (ev.type === "vm.command" && d.op === "job") { st.vmJobs += 1; }
+  }
+
   function seedFromReport(report) {
     (report.findings || []).forEach(function (r) {
+      if (!r.id) { return; }
       var f = finding(r.id);
       f.path = f.path || r.path; f.line = f.line || r.line; f.severity = f.severity || r.severity;
-      f.bug_type = f.bug_type || r.bug_type;
+      f.bug_type = f.bug_type || r.bug_type; f.tool = f.tool || r.tool;
       if (r.outcome) { f.outcome = r.outcome; }
+      if (r.verdict && !f.stage) { f.stage = "triaged: " + r.verdict.replace(/_/g, " "); }
       Object.keys(r.gates || {}).forEach(function (g) { f.gates[g] = r.gates[g].status; });
     });
   }
 
-  function hatch(type) {
-    state.hatch += 1;
-    var id = "D" + state.hatch;
-    var paths = { sqli: "app/db/orders.py", xss: "web/static/app.js", cmdi: "tools/backup.sh", traversal: "uploads/files.py",
-      secret: "config/keys.py", dependency: "package.json", glitch: "src/misc.py" };
-    var district = { sqli: "db", xss: "web", cmdi: "tools", traversal: "uploads", secret: "config", dependency: "vendor", glitch: "annex" }[type];
-    var outcomes = ["fixed_verified", "fixed_unproven", "rejected_tests", "inconclusive"];
-    var seq = [
-      { type: "finding.detected", finding: id, data: { path: paths[type], line: 7, severity: "high", bug_type: type, district: district } },
-      { type: "stage.enter", finding: id, data: { stage: "triage" } },
-      { type: "fix.attempt", finding: id, data: { backend: Math.random() > 0.5 ? "gateway" : "claude-cli", attempt: 1 } },
-      { type: "policy.verdict", finding: id, data: { ok: true } },
-      { type: "stage.enter", finding: id, data: { stage: "sandbox" } },
-      { type: "stage.enter", finding: id, data: { stage: "verify" } },
-      { type: "finding.outcome", finding: id, data: { outcome: outcomes[state.hatch % outcomes.length] } }
-    ];
-    seq.forEach(function (ev, i) { setTimeout(function () { apply(ev); }, i * 900); });
-  }
-
-  function showInfo(info) {
+  function showInfo(pick, lines) {
     var box = $("info");
     while (box.firstChild) { box.removeChild(box.firstChild); }
-    function line(t) { var p = document.createElement("p"); p.textContent = t; box.appendChild(p); }
-    if (info.kind === "building") {
-      var b = info.building;
-      line(b.path || (b.aggregate ? "aggregated files" : "another file (no findings)"));
-      line("State: " + b.state);
-      if (b.findings.length) { line("Findings: " + b.findings.join(", ")); }
-    } else if (info.kind === "station") {
-      line(info.title);
-      var station = state.city && state.city.stations[info.key];
-      line("Visits: " + (station ? station.visits : 0));
-    } else if (info.kind === "bug") {
-      var f = state.findings[info.bug.f.id] || {};
-      line(info.bug.f.id + " · " + (NAMES[info.bug.type] || info.bug.type));
-      line((f.severity || "") + " · " + (f.path || ""));
-      line("Stage: " + (f.stage || "waiting") + (f.backend ? " · " + f.backend : ""));
-      line("Outcome: " + (f.outcome || "in progress"));
-      if (f.outcome) {
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = "Review patch";
-        btn.addEventListener("click", function () { review.open(f); });
-        box.appendChild(btn);
-      }
-    }
+    (lines || []).forEach(function (t) { var p = document.createElement("p"); p.textContent = t; box.appendChild(p); });
   }
 
   function setDashboard(on) {
     document.body.classList.toggle("dash", on);
     $("view-toggle").setAttribute("aria-pressed", on ? "true" : "false");
-    text($("view-toggle"), on ? "Living city" : "Plain dashboard");
-    if (!on && !state.city) { startCity(); }
+    text($("view-toggle"), on ? "System map" : "Plain dashboard");
+    if (!on && !state.map) { startMap(); }
   }
 
-  function startCity() {
-    if (!window.SiftCity || !window.SiftCity.available()) {
+  function startMap() {
+    if (!window.SiftMap || !window.SiftMap.available()) {
       $("webgl-note").classList.remove("hidden");
       setDashboard(true);
       $("view-toggle").disabled = true;
       return;
     }
-    var report = state.report || {};
-    state.city = window.SiftCity.create($("city-canvas"), {
-      districtNames: report.districts,
+    state.map = window.SiftMap.create($("city-canvas"), {
       onStats: function (s) {
-        state.stats.health = s.health; state.stats.repaired = s.repaired;
-        state.stats.landfill = s.landfill; state.stats.limbo = s.limbo;
+        var st = state.stats;
+        st.findings = s.findings; st.llmCalls = s.llmCalls; st.llmFailed = s.llmFailed; st.tokensIn = s.tokensIn;
+        st.tokensOut = s.tokensOut; st.vmJobs = s.vmJobs; st.scanners = s.scanners;
         scheduleRender();
       }
     });
-    state.city.onSelect(showInfo);
-    var city = state.city;
-    state.history.forEach(function (ev) { city.handle(ev); }); // a city opened mid-run catches up
+    state.map.onSelect(showInfo);
+    var map = state.map;
+    state.history.forEach(function (ev) { map.handle(ev); }); // a map opened mid-run catches up
+  }
+
+  function resetStats() {
+    state.stats = { findings: 0, llmCalls: 0, llmFailed: 0, tokensIn: 0, tokensOut: 0, vmJobs: 0, scanners: 0 };
+    state.started = null; state.ended = null;
   }
 
   function loadRun(id) {
     if (state.source) { state.source.close(); state.source = null; }
     state.run = id;
     state.findings = {}; state.order = []; state.history = [];
+    resetStats();
     var ol = $("event-log");
     while (ol.firstChild) { ol.removeChild(ol.firstChild); }
-    if (state.city) {
-      var holder = $("city-canvas");
-      while (holder.firstChild) { holder.removeChild(holder.firstChild); }
-      state.city = null;
-    }
+    showInfo(null, ["Click the CodeSift core, a scanner, a model or the VM."]);
+    if (state.map) { state.map.dispose(); state.map = null; }
+    $("run-select").value = id;
     getJSON("/api/run/" + encodeURIComponent(id) + "/report").then(function (report) {
       state.report = report;
-      if (!document.body.classList.contains("dash")) { startCity(); }
+      if (!document.body.classList.contains("dash")) { startMap(); }
       var src = new EventSource("/api/stream/" + encodeURIComponent(id));
       state.source = src;
       var finished = false;
@@ -212,41 +211,81 @@
         var ev;
         try { ev = JSON.parse(m.data); } catch (e) { return; }
         apply(ev);
-        if (ev.type === "run.end") { finished = true; src.close(); seedFromReport(report); scheduleRender(); }
+        if (ev.type === "run.end") {
+          finished = true; src.close();
+          getJSON("/api/run/" + encodeURIComponent(id) + "/report").then(function (r) { seedFromReport(r); scheduleRender(); })
+            .catch(function () { seedFromReport(report); scheduleRender(); });
+        }
       };
       src.onerror = function () { src.close(); if (!finished) { seedFromReport(report); scheduleRender(); } };
     }).catch(function () { text($("city-alt"), "Could not load the run."); });
+  }
+
+  function label(r) {
+    return (r.live ? "● live · " : "") + r.project + " · " + (r.kind || "") + " " + r.mode + " · " + String(r.started).replace("T", " ").replace("Z", "");
+  }
+
+  function fillRuns(runs) {
+    var select = $("run-select");
+    var keep = select.value;
+    while (select.firstChild) { select.removeChild(select.firstChild); }
+    runs.forEach(function (r) {
+      var opt = document.createElement("option");
+      opt.value = r.id;
+      opt.textContent = label(r);
+      select.appendChild(opt);
+    });
+    if (keep) { select.value = keep; }
+  }
+
+  // Follow the newest run: when a new scan or fix starts, switch to it unless the user picked a run.
+  function poll() {
+    getJSON("/api/runs").then(function (data) {
+      var runs = (data.runs || []).filter(function (r) { return r.id !== "demo"; });
+      var newest = runs[0];
+      var known = state.runs.map(function (r) { return r.id; });
+      state.runs = data.runs || [];
+      fillRuns(state.runs);
+      if (newest && known.indexOf(newest.id) === -1 && !state.pinned && newest.id !== state.run) { loadRun(newest.id); }
+    }).catch(function () { /* server stopped: the page keeps what it has */ });
   }
 
   function init() {
     getJSON("/api/config").then(function (cfg) {
       state.config = cfg;
       var small = window.innerWidth < 720;
-      var wantDash = cfg.ci || small || !(window.SiftCity && window.SiftCity.available());
+      var wantDash = cfg.ci || small || !(window.SiftMap && window.SiftMap.available());
       document.body.classList.toggle("dash", wantDash);
       $("view-toggle").setAttribute("aria-pressed", wantDash ? "true" : "false");
-      text($("view-toggle"), wantDash ? "Living city" : "Plain dashboard");
+      text($("view-toggle"), wantDash ? "System map" : "Plain dashboard");
       return getJSON("/api/runs");
     }).then(function (data) {
-      var select = $("run-select");
-      (data.runs || []).forEach(function (r) {
-        var opt = document.createElement("option");
-        opt.value = r.id;
-        opt.textContent = r.project + " · " + r.mode + " · " + r.started;
-        select.appendChild(opt);
+      state.runs = data.runs || [];
+      fillRuns(state.runs);
+      $("run-select").addEventListener("change", function () {
+        state.pinned = $("run-select").value !== (state.runs[0] && state.runs[0].id);
+        loadRun($("run-select").value);
       });
-      select.addEventListener("change", function () { loadRun(select.value); });
-      if (data.runs && data.runs.length) { loadRun(data.runs[0].id); } else { text($("dash-summary"), "No runs yet - run `sift fix` or `sift validate`, or start `sift ui --demo`."); }
+      if (state.runs.length) { loadRun(state.runs[0].id); } else {
+        text($("dash-summary"), "No runs yet. Start `sift scan` or `sift fix` in a project - this page picks it up live.");
+        if (!document.body.classList.contains("dash")) { startMap(); }
+      }
+      setInterval(poll, POLL_MS);
+      setInterval(function () { if (state.started && !state.ended) { text($("stat-time"), elapsed()); } }, 1000);
     }).catch(function () { text($("dash-summary"), "Could not reach the CodeSift UI server."); });
 
     $("view-toggle").addEventListener("click", function () { setDashboard(!document.body.classList.contains("dash")); });
+    $("follow").addEventListener("click", function () {
+      state.pinned = false;
+      if (state.runs[0]) { loadRun(state.runs[0].id); }
+    });
     $("pause").addEventListener("click", function () {
       var p = $("pause").getAttribute("aria-pressed") !== "true";
       $("pause").setAttribute("aria-pressed", p ? "true" : "false");
       text($("pause"), p ? "Resume" : "Pause");
-      if (state.city) { state.city.setPaused(p); }
+      if (state.map) { state.map.setPaused(p); }
     });
-    $("speed").addEventListener("change", function () { if (state.city) { state.city.setSpeed(parseFloat($("speed").value)); } });
+    $("speed").addEventListener("change", function () { if (state.map) { state.map.setSpeed(parseFloat($("speed").value)); } });
   }
 
   init();

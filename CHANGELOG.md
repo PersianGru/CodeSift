@@ -4,6 +4,22 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Changed
+- `sift ui` shows a live 3D map of the real run instead of the "living city": this machine with the
+  run's scanners, the LLM gateway with your models, and the sandbox VM with its containers. Every
+  packet is a real event; nothing moves without one. Scans now appear too, and the page follows a
+  new run as soon as it starts.
+- `sift scan` writes `events.jsonl`: scanners starting and reporting, each finding, each LLM call
+  (model, tokens, time). `sift validate` / `sift fix` also record each LLM call and VM command.
+  Metadata only: never a prompt, an answer, a command or output. New `CODESIFT_RUNS` override.
+- A failed sandbox self-test names the failing check and its detail.
+
+### Fixed
+- `sift setup --vm`: a refused sudo/doas password is reported as such, not as a script error.
+- Sandbox jobs on Docker 29: `/work` is mounted writable for the job user.
+- Sandbox input check: BusyBox `tar` hiding `../` member names no longer slips through.
+- Tests no longer read or write the real `~/.codesift`.
+
 ## [0.2.0] - 2026-11-14
 
 Prove fixes, not just find problems. The scan commands behave as before. Design: ADR-0011..0016,

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from codesift import telemetry
 from codesift.config import LLMSettings
 from codesift.finding import Finding, Triage
 from codesift.gateway import LLMError, ModelSession
@@ -350,7 +351,8 @@ def triage_findings(
             continue
         sent += 1
         messages = build_messages(f, excerpt, ecosystems)
-        result = _ask(session, messages, excerpt, settings, stats, think)
+        with telemetry.doing("triage", f.id):
+            result = _ask(session, messages, excerpt, settings, stats, think)
         if isinstance(result, str):
             f.triage = Triage(status="failed", model=session.model, note=result)
             if session.dead:

@@ -52,8 +52,8 @@
       tr.appendChild(act);
       rows.appendChild(tr);
     });
-    this.summary.textContent = findings.length + " finding(s) · city health " + stats.health +
-      "% · repaired " + stats.repaired + " · landfill " + stats.landfill + " · limbo " + stats.limbo;
+    this.summary.textContent = findings.length + " finding(s) · " + (stats.llmCalls || 0) + " LLM call(s) · " +
+      (stats.vmJobs || 0) + " sandbox job(s)";
   };
 
   function Review(getRun) {

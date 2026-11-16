@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from codesift import __version__
+from codesift import __version__, telemetry
 from codesift.config import Credentials
 from codesift.redact import Redactor
 
@@ -223,6 +223,8 @@ class GatewayClient:
             if not think and self.reasoning_control:
                 body["reasoning_effort"] = "none"
             start = time.monotonic()
+            prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            telemetry.signal("llm.request", model=model, prompt_chars=prompt_chars, max_tokens=budget)
             try:
                 if self.stream:
                     data = self._stream(body, timeout)
@@ -230,6 +232,13 @@ class GatewayClient:
                     data = self._request("POST", "/chat/completions", body, timeout)
             except urllib.error.HTTPError as exc:
                 detail = _read_error(exc)
+                telemetry.signal(
+                    "llm.response",
+                    model=model,
+                    ok=False,
+                    error=f"HTTP {exc.code}",
+                    latency_s=round(time.monotonic() - start, 2),
+                )
                 if exc.code == 400 and "response_format" in detail and self.json_mode:
                     self.json_mode = False  # gateway/model without JSON mode: plain prompt-only JSON
                     continue
@@ -255,6 +264,13 @@ class GatewayClient:
             except (TimeoutError, urllib.error.URLError, OSError) as exc:
                 reason = getattr(exc, "reason", exc)
                 timed_out = isinstance(exc, TimeoutError) or "timed out" in str(reason).lower()
+                telemetry.signal(
+                    "llm.response",
+                    model=model,
+                    ok=False,
+                    error="timeout" if timed_out else "connection",
+                    latency_s=round(time.monotonic() - start, 2),
+                )
                 last = LLMError(
                     f"{'timeout after ' + str(int(timeout)) + 's' if timed_out else 'connection error'}: "
                     f"{self._clean(str(reason))}",
@@ -268,6 +284,19 @@ class GatewayClient:
             choice = (data.get("choices") or [{}])[0]
             message = choice.get("message") or {}
             content = str(message.get("content") or "").strip()
+            raw_usage = data.get("usage")
+            usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
+            telemetry.signal(
+                "llm.response",
+                model=model,
+                served_by=str(data.get("model") or model),
+                ok=bool(content),
+                error="" if content else "empty answer",
+                latency_s=round(latency, 2),
+                tokens_in=int(usage.get("prompt_tokens") or 0),
+                tokens_out=int(usage.get("completion_tokens") or 0),
+                answer_chars=len(content),
+            )
             if not content:
                 # Thinking models can spend the whole budget on reasoning: retry once, bigger budget.
                 if not grew_budget:

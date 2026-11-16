@@ -255,9 +255,11 @@ def ensure_selftest(sandbox: Sandbox, state_dir: Path, now: float | None = None)
     report = run_selftest(sandbox)
     record(state_dir, digest, report, now)
     if not report.passed:
-        failed = [i.name for i in report.items if i.status != "pass"]
+        bad = [i for i in report.items if i.status != "pass"]
+        first = bad[0]
         raise SandboxError(
-            f"sandbox self-test failed ({', '.join(failed)}) - refusing to run anything",
-            fix="run `sift vm doctor` for details",
+            f"sandbox self-test failed ({', '.join(i.name for i in bad)}: {first.detail[:160]})"
+            " - refusing to run anything",
+            fix=first.fix or "run `sift vm doctor` for details",
         )
     return report

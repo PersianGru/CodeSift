@@ -72,7 +72,7 @@ button[data-action="approve"]:hover { filter: brightness(1.08); }
 main { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
 #city-view {
   position: relative; flex: 1; min-height: 420px;
-  background: radial-gradient(ellipse at 50% 55%, rgba(245, 165, 36, 0.10), transparent 60%), var(--bg);
+  background: #07080a;
 }
 .canvas-wrap { position: absolute; inset: 0; }
 .canvas-wrap canvas { display: block; width: 100%; height: 100%; }
@@ -99,9 +99,16 @@ main { flex: 1; position: relative; min-height: 0; display: flex; flex-direction
 .traffic .t-verdict { --c: #edeef0; }
 .traffic .t-fail { --c: #ff8a8a; }
 .traffic .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); flex: none; }
-.log { right: 12px; bottom: 12px; width: 300px; max-height: 38%; overflow: auto; }
+.log { right: 12px; bottom: 12px; width: 340px; max-width: 340px; max-height: 34%; overflow: auto; }
 .log ol { margin: 0; padding-left: 18px; font: 12px/1.5 var(--mono); color: var(--dim); }
 .log li.important { color: var(--text); }
+.log li.k-scan { color: #a9c1ff; }
+.log li.k-llm { color: var(--amber); }
+.log li.k-reply { color: var(--amber-2); }
+.log li.k-vm { color: var(--ok); }
+.log li.k-fail { color: var(--bad); }
+.log ol { list-style: none; padding-left: 0; }
+.info p { margin: 2px 0; font-size: 13px; }
 .note { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line-2); padding: 6px 12px; border-radius: 10px; }
 
 .dashboard { padding: 16px; display: none; }

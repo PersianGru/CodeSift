@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>CodeSift City</title>
+  <title>CodeSift Live</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <a class="skip" href="#dashboard">Skip to the findings table</a>
   <header class="topbar">
-    <h1>CodeSift<span class="brackets" aria-hidden="true">()</span> <span class="accent">City</span></h1>
+    <h1>CodeSift<span class="brackets" aria-hidden="true">()</span> <span class="accent">Live</span></h1>
     <label class="run-pick">Run
       <select id="run-select" aria-label="Choose a run"></select>
     </label>
     <div class="controls" role="group" aria-label="View controls">
+      <button id="follow" type="button" title="Show the newest run and follow new ones">Follow live</button>
       <button id="view-toggle" type="button" aria-pressed="false">Plain dashboard</button>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
       <label>Speed
@@ -29,30 +30,29 @@
   </header>
 
   <main id="main">
-    <section id="city-view" aria-label="Living city view">
+    <section id="city-view" aria-label="Live system map">
       <div id="city-canvas" class="canvas-wrap" role="img" aria-describedby="city-alt"></div>
-      <p id="city-alt" class="sr-only" aria-live="polite">Loading the city.</p>
+      <p id="city-alt" class="sr-only" aria-live="polite">Loading the system map.</p>
       <p id="webgl-note" class="note hidden">3D view unavailable here - showing the plain dashboard.</p>
 
       <aside class="panel legend" aria-labelledby="legend-h">
-        <h2 id="legend-h">Wanted list</h2>
+        <h2 id="legend-h">Findings</h2>
         <ul id="legend"></ul>
       </aside>
 
       <aside class="panel info" aria-labelledby="info-h">
         <h2 id="info-h">Info</h2>
-        <div id="info">Click a building, a station or a bug.</div>
+        <div id="info">Click the CodeSift core, a scanner, a model or the VM.</div>
       </aside>
 
       <aside class="panel traffic" aria-labelledby="traffic-h">
-        <h2 id="traffic-h">Traffic</h2>
+        <h2 id="traffic-h">Traffic (real events only)</h2>
         <ul>
-          <li><span class="dot t-scan"></span>Scanners and re-scan</li>
-          <li><span class="dot t-llm"></span>Prompt to an LLM</li>
-          <li><span class="dot t-reply"></span>LLM reply or patch</li>
-          <li><span class="dot t-sandbox"></span>Sandbox VM job or result</li>
-          <li><span class="dot t-verdict"></span>Gate verdict, tokens</li>
-          <li><span class="dot t-fail"></span>Failed gate or fixer</li>
+          <li><span class="dot t-scan"></span>Scanner started / reported</li>
+          <li><span class="dot t-llm"></span>Request to a model (size = prompt)</li>
+          <li><span class="dot t-reply"></span>Model answer (size = tokens)</li>
+          <li><span class="dot t-sandbox"></span>Command or job on the VM</li>
+          <li><span class="dot t-fail"></span>Failed call, job or scanner</li>
         </ul>
       </aside>
 
@@ -97,17 +97,25 @@
     </section>
   </main>
 
-  <footer class="stats" aria-label="City statistics">
-    <span>City health <strong id="stat-health">-</strong></span>
-    <span>Repaired <strong id="stat-repaired">0</strong></span>
-    <span>Landfill <strong id="stat-landfill">0</strong></span>
-    <span>Limbo <strong id="stat-limbo">0</strong></span>
-    <span>Tokens <strong id="stat-tokens">0</strong></span>
+  <footer class="stats" aria-label="Run statistics">
+    <span>Findings <strong id="stat-findings">0</strong></span>
+    <span>Scanners done <strong id="stat-scanners">0</strong></span>
+    <span>LLM calls <strong id="stat-llm">0</strong></span>
+    <span>Tokens in / out <strong id="stat-tokens">0 / 0</strong></span>
+    <span>VM jobs <strong id="stat-jobs">0</strong></span>
+    <span>Time <strong id="stat-time">-</strong></span>
   </footer>
 
   <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/vendor/three-CopyShader.js"></script>
+  <script src="/static/vendor/three-LuminosityHighPassShader.js"></script>
+  <script src="/static/vendor/three-EffectComposer.js"></script>
+  <script src="/static/vendor/three-RenderPass.js"></script>
+  <script src="/static/vendor/three-ShaderPass.js"></script>
+  <script src="/static/vendor/three-UnrealBloomPass.js"></script>
+  <script src="/static/vendor/three-RoomEnvironment.js"></script>
   <script src="/static/dashboard.js"></script>
-  <script src="/static/city.js"></script>
+  <script src="/static/map.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

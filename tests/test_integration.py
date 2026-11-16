@@ -19,6 +19,7 @@ from codesift.lockfile import LockError, active_lock_path, load_lock
 from codesift.paths import Paths, get_paths
 from codesift.scan import ScanOptions, scan
 from codesift.tools import ToolError, resolve_tool
+from codesift.validate.events import read_events
 from conftest import INSTALLED_PATHS
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -109,6 +110,15 @@ def test_full_scan_offline(project: tuple[Path, str], real_paths: Paths) -> None
 
     assert outcome.exit_code == 1
     assert len(outcome.summary_path.read_text(encoding="utf-8").splitlines()) <= 150
+    # The UI's live events: topology first, a result per scanner, every finding, then the end.
+    events, _ = read_events(outcome.run_dir / "events.jsonl")
+    assert events[0]["type"] == "run.start" and events[0]["data"]["kind"] == "scan"
+    assert "ruff" in events[0]["data"]["topology"]["scanners"]
+    results = {e["data"]["name"]: e["data"]["status"] for e in events if e["type"] == "scanner.result"}
+    assert results["ruff"] == "ok" and results["osv-scanner"] == "skipped"
+    detected = [e for e in events if e["type"] == "finding.detected"]
+    assert len(detected) == len([f for f in outcome.findings if f.path])
+    assert events[-1]["type"] == "run.end" and events[-1]["data"]["exit_code"] == 1
     # The planted secret must not appear anywhere CodeSift wrote.
     assert _files_containing(outcome.run_dir, secret) == []
     assert _files_containing(outcome.run_dir, secret[4:20]) == []

@@ -143,8 +143,8 @@ def test_api_and_patches(server: UIServer) -> None:
     c.login()
     runs = json.loads(c.req("GET", "/api/runs").read())["runs"]
     ids = [r["id"] for r in runs]
-    assert "demo" in ids and "proj-1234abcd~20261114-100000" in ids
-    rid = "proj-1234abcd~20261114-100000"
+    assert "demo" in ids and "fix~proj-1234abcd~20261114-100000" in ids
+    rid = "fix~proj-1234abcd~20261114-100000"
     assert c.req("GET", f"/api/run/{rid}/report").status == 200
     events = c.req("GET", f"/api/run/{rid}/events").read().decode().splitlines()
     assert json.loads(events[-1])["type"] == "run.end"
@@ -161,7 +161,7 @@ def test_api_and_patches(server: UIServer) -> None:
 def test_decision_csrf_and_never_applies(server: UIServer, paths: Paths) -> None:
     c = Client(server)
     c.login()
-    rid = "proj-1234abcd~20261114-100000"
+    rid = "fix~proj-1234abcd~20261114-100000"
     payload = {"run": rid, "finding": "F001", "action": "approve", "note": "looks good"}
     assert c.post_decision(payload, **{"X-CodeSift-CSRF": ""}).status == 403
     assert c.post_decision(payload, Origin="https://evil.example.com").status == 403
@@ -199,7 +199,7 @@ def test_demo_stream_and_replay(server: UIServer, paths: Paths) -> None:
         "cmdi",
         "secret",
     }
-    rid = "proj-1234abcd~20261114-100000"
+    rid = "fix~proj-1234abcd~20261114-100000"
     tail = c.req("GET", f"/api/stream/{rid}").read().decode()
     assert '"run.end"' in tail
     replay = Runs(paths, replay_dir=paths.validate_runs / "proj-1234abcd" / "20261114-100000")
@@ -217,18 +217,33 @@ def test_demo_stream_and_replay(server: UIServer, paths: Paths) -> None:
 _URL = re.compile(r"(?:https?:)?//[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
+def _code_lines(text: str) -> str:
+    """Drop comments: the vendored three.js add-ons cite their sources in comments. A trailing comment
+    starts with whitespace + `//`, so the `//` inside a real URL in code (`"https://..."`) is kept."""
+    kept = []
+    for line in text.splitlines():
+        if line.strip().startswith(("//", "*", "/*")):
+            continue
+        kept.append(re.sub(r"\s//.*$", "", line))
+    return "\n".join(kept)
+
+
 def test_no_external_urls_in_served_files() -> None:
     for route, (name, _ctype) in STATIC.items():
-        text = static_bytes(name).decode("utf-8", "replace")
+        text = _code_lines(static_bytes(name).decode("utf-8", "replace"))
         found = {u for u in _URL.findall(text) if "www.w3.org" not in u}  # XML namespace ids, not requests
         assert not found, (route, sorted(found)[:5])
 
 
-def test_three_hash_matches_third_party_record() -> None:
+def test_vendor_hashes_match_third_party_record() -> None:
     record = (STATIC_DIR / "vendor" / "THIRD_PARTY.md").read_text(encoding="utf-8")
-    m = re.search(r"`([0-9a-f]{64})`", record)
-    assert m is not None and "r128" in record
-    assert hashlib.sha256((STATIC_DIR / "vendor" / "three.min.js").read_bytes()).hexdigest() == m.group(1)
+    rows = dict(re.findall(r"^\| `([A-Za-z0-9.-]+\.js)` \|.*`([0-9a-f]{64})` \|$", record, re.MULTILINE))
+    shipped = {p.name for p in (STATIC_DIR / "vendor").glob("*.js")}
+    assert "three.min.js" in rows and set(rows) == shipped, (sorted(rows), sorted(shipped))
+    for name, digest in rows.items():
+        assert hashlib.sha256((STATIC_DIR / "vendor" / name).read_bytes()).hexdigest() == digest, name
+    served = {name for name, _ in STATIC.values()}
+    assert {f"vendor/{n}" for n in shipped} <= served
     assert (STATIC_DIR / "vendor" / "LICENSE.three.txt").is_file()
 
 
@@ -236,12 +251,12 @@ def test_no_inline_script_or_style() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)
     assert "<style" not in html and " style=" not in html and "onclick" not in html.lower()
-    for js in ("app.js", "city.js", "dashboard.js"):
+    for js in ("app.js", "map.js", "dashboard.js"):
         assert "innerHTML" not in (STATIC_DIR / js).read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-@pytest.mark.parametrize("name", ["app.js", "city.js", "dashboard.js"])
+@pytest.mark.parametrize("name", ["app.js", "map.js", "dashboard.js"])
 def test_js_syntax(name: str) -> None:
     node = shutil.which("node")
     assert node

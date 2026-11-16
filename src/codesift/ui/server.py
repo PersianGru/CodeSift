@@ -45,10 +45,24 @@ STATIC: dict[str, tuple[str, str]] = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/static/app.css": ("app.css", "text/css; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    "/static/city.js": ("city.js", "text/javascript; charset=utf-8"),
+    "/static/map.js": ("map.js", "text/javascript; charset=utf-8"),
     "/static/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),
     "/static/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
 }
+_THREE_ADDONS = (
+    "CopyShader",
+    "LuminosityHighPassShader",
+    "EffectComposer",
+    "RenderPass",
+    "ShaderPass",
+    "UnrealBloomPass",
+    "RoomEnvironment",
+)
+for _name in _THREE_ADDONS:
+    STATIC[f"/static/vendor/three-{_name}.js"] = (
+        f"vendor/three-{_name}.js",
+        "text/javascript; charset=utf-8",
+    )
 _API = re.compile(r"^/api/(run|stream|patch)/([A-Za-z0-9._~-]{1,170})(?:/([A-Za-z0-9._-]{1,40}))?$")
 
 

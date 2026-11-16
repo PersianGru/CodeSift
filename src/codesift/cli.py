@@ -234,7 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_validate(sub)
     p = sub.add_parser(
         "ui",
-        help="local web UI: the living city + a plain dashboard (127.0.0.1 only, token-protected)",
+        help="local web UI: a live 3D map of the run + a plain dashboard (127.0.0.1 only, token-protected)",
         description="Serves a local web UI on 127.0.0.1 with a one-time token URL. No external requests. "
         "Review decisions are recorded in the run folder; patches are never applied.",
     )

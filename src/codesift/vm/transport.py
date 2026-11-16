@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Protocol
 
+from codesift import telemetry
 from codesift.vm import SandboxError
 from codesift.vm.config import VMConfig
 from codesift.vm.keys import KEY_NAME
@@ -125,6 +126,8 @@ class SshTransport:
     ) -> ExecResult:
         cmd = self.argv(argv)
         env = {k: v for k, v in os.environ.items() if k not in ("SSH_ASKPASS", "DISPLAY")}
+        op, job = describe_command(argv)
+        telemetry.signal("vm.command", op=op, job=job, bytes_in=len(stdin or b""))
         start = time.monotonic()
         try:
             proc = subprocess.Popen(  # noqa: S603 - argument list, no shell, validated values
@@ -169,7 +172,7 @@ class SshTransport:
             proc.wait(timeout=10)
         for t in readers:
             t.join(timeout=5)
-        return ExecResult(
+        result = ExecResult(
             returncode=proc.returncode if proc.returncode is not None else -1,
             stdout=b"".join(out),
             stderr=clean_text(b"".join(err), MAX_STDERR),
@@ -177,6 +180,45 @@ class SshTransport:
             timed_out=timed_out,
             duration_s=time.monotonic() - start,
         )
+        telemetry.signal(
+            "vm.result",
+            op=op,
+            job=job,
+            rc=result.returncode,
+            duration_s=round(result.duration_s, 2),
+            bytes_out=len(result.stdout),
+            timed_out=timed_out,
+        )
+        return result
+
+
+_OPS = {
+    ("cat", "/proc/meminfo"): "free memory",
+    ("version",): "runtime version",
+    ("ps",): "list jobs",
+    ("rm",): "remove containers",
+    ("image", "inspect"): "image check",
+    ("image", "pull"): "image pull",
+    ("build",): "image build",
+    ("run",): "job",
+}
+
+
+def describe_command(argv: Sequence[str]) -> tuple[str, str]:
+    """A fixed label for a remote command (never its arguments), plus a short job id for `run`."""
+    args = list(argv)
+    words = args[1:] if args and args[0] in ("docker", "podman") else args
+    op = "other"
+    for key, label in _OPS.items():
+        if tuple(words[: len(key)]) == key:
+            op = label
+            break
+    job = ""
+    if op == "job" and "--name" in args:
+        name = args[args.index("--name") + 1] if args.index("--name") + 1 < len(args) else ""
+        if name.startswith("sift-") and all(c in "0123456789abcdef" for c in name[5:]):
+            job = name[5:13]
+    return op, job
 
 
 # ---------------------------------------------------------------- fake

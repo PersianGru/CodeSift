@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from codesift import telemetry
+from codesift.activity import recording, topology
 from codesift.config import ConfigError, ValidateSettings, load_project_config
 from codesift.finding import Finding
 from codesift.fix.base import Fixer, FixRequest, Usage
@@ -223,10 +225,18 @@ class Engine:
             self.opts.budget_tokens, self.opts.budget_s, self.opts.finding_budget_s, self.deps.clock
         )
         t0 = self.deps.clock()
-        self.events.emit("run.start", mode=self.opts.mode, dry_run=self.opts.dry_run, project=self.root.name)
+        self.events.emit(
+            "run.start",
+            mode=self.opts.mode,
+            kind="fix",
+            dry_run=self.opts.dry_run,
+            project=self.root.name,
+            topology=topology(self.paths),
+        )
         self.audit.write("run.start", command=self.opts.mode, dry_run=self.opts.dry_run)
         try:
-            self._run()
+            with recording(self.events):
+                self._run()
         except (ValidateError, SandboxError, ConfigError) as exc:
             self.report.exit_code = EXIT_ERROR
             message = str(exc) + (f" - fix: {exc.fix}" if isinstance(exc, SandboxError) and exc.fix else "")
@@ -563,7 +573,8 @@ class Engine:
                 )
                 t = self.deps.clock()
                 try:
-                    result = step.fixer.fix(request)
+                    with telemetry.doing("fix", f.id):
+                        result = step.fixer.fix(request)
                 except Exception as exc:  # a backend bug must not kill the run
                     result_ok, error, model, usage = False, f"{type(exc).__name__}", "", Usage()
                 else:

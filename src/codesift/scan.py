@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from codesift import baseline as baseline_mod
+from codesift.activity import recording, topology
 from codesift.config import (
     ConfigError,
     ProjectConfig,
@@ -53,6 +54,7 @@ from codesift.runners import ALL_RUNNERS, RUNNER_NAMES, Context, Runner, RunnerE
 from codesift.state import load_state, parse_iso
 from codesift.tools import ToolError
 from codesift.triage import TriageCache, triage_findings
+from codesift.validate.events import EventLog, bug_type_of, district_of
 
 UPDATE_CHECK_MAX_DAYS = 30
 TOOL_BEHIND_MAX_DAYS = 60
@@ -158,12 +160,29 @@ def _warnings(paths: Paths, lock_published: dict[str, str]) -> list[str]:
     return out
 
 
-def _run_one(runner: Runner, ctx: Context) -> RunResult:
+def _run_one(runner: Runner, ctx: Context, events: EventLog | None = None) -> RunResult:
+    result = _run_scanner(runner, ctx, events)
+    if events is not None:
+        events.note(
+            "scanner.result",
+            name=result.name,
+            status=result.status,
+            findings=len(result.findings),
+            duration_s=round(result.duration_s, 2),
+            reason=result.reason or "",
+            version=result.version or "",
+        )
+    return result
+
+
+def _run_scanner(runner: Runner, ctx: Context, events: EventLog | None) -> RunResult:
     result = RunResult(name=runner.name, version=runner.version(ctx))
     reason = runner.applies(ctx)
     if reason is not None:
         result.status, result.reason = "skipped", reason
         return result
+    if events is not None:
+        events.note("scanner.start", name=runner.name)
     start = time.monotonic()
     try:
         result.findings = runner.run(ctx)
@@ -321,96 +340,135 @@ def scan(opts: ScanOptions, paths: Paths) -> ScanOutcome:
     previous = latest_run(paths.runs, root)
     previous_commit = str(load_report(previous).get("project", {}).get("commit", "")) if previous else ""
     run = new_run_dir(paths.runs, root)
-    work = run / "work"
-    work.mkdir()
-    ctx = Context(
-        root=root,
-        detection=detection,
-        git=gi,
-        paths=paths,
-        lock=lock,
-        raw_dir=run / "raw",
-        work_dir=work,
-        exclude_globs=project_cfg.exclude,
-        offline=offline,
-        since=opts.since,
-        changed=changed,
-        jobs=user_cfg.jobs,
-        timeout=120 if opts.fast else 900,
-        redactor=Redactor(),
-        rules_dir=rdir,
-        extra_rules_dirs=extra_rules,
+    events = EventLog(run / "events.jsonl", run.name, Redactor())
+    events.note(
+        "run.start",
+        mode="since" if opts.since else ("fast" if opts.fast else "full"),
+        kind="scan",
+        project=root.name,
+        dry_run=False,
+        topology=topology(paths, [r.name for r in runners]),
     )
-
-    results: list[RunResult] = [RunResult(name=n, status="skipped", reason=r) for n, r in off.items()]
-    to_run: list[Runner] = []
-    for r in runners:
-        if r.needs_network and offline:
-            results.append(
-                RunResult(name=r.name, version=r.version(ctx), status="skipped", reason="--offline")
-            )
-        else:
-            to_run.append(r)
-    with ThreadPoolExecutor(max_workers=max(1, user_cfg.jobs)) as pool:
-        results += list(pool.map(lambda r: _run_one(r, ctx), to_run))
-    shutil.rmtree(work, ignore_errors=True)
-    order = {n: i for i, n in enumerate(RUNNER_NAMES)}
-    results.sort(key=lambda r: order.get(r.name, 99))
-
-    classes = {cls.name: cls for cls in ALL_RUNNERS}
-    scope = set(detection.files) if detection.from_git else None
-    raw: list[Finding] = []
-    for res in results:
-        res.findings = _post_filter(classes.get(res.name), res.findings, project_cfg.exclude, scope)
-        raw += res.findings
-    hide_secret_lines(raw)
-    scrub_findings(raw, ctx.redactor)
-    findings = dedupe(raw)
     try:
-        expired = baseline_mod.apply(findings, baseline_mod.load(root))
-    except baseline_mod.BaselineError as exc:
-        errors.append(str(exc))
-        expired = []
-    findings = group_policy_findings(findings)
-    mark_review(findings)
-    order_and_number(findings)
+        with recording(events):
+            work = run / "work"
+            work.mkdir()
+            ctx = Context(
+                root=root,
+                detection=detection,
+                git=gi,
+                paths=paths,
+                lock=lock,
+                raw_dir=run / "raw",
+                work_dir=work,
+                exclude_globs=project_cfg.exclude,
+                offline=offline,
+                since=opts.since,
+                changed=changed,
+                jobs=user_cfg.jobs,
+                timeout=120 if opts.fast else 900,
+                redactor=Redactor(),
+                rules_dir=rdir,
+                extra_rules_dirs=extra_rules,
+            )
 
-    llm, review = _llm_phase(
-        opts, paths, root, detection, findings, ctx.redactor, previous_commit, changed, errors
-    )
+            results: list[RunResult] = [RunResult(name=n, status="skipped", reason=r) for n, r in off.items()]
+            to_run: list[Runner] = []
+            for r in runners:
+                if r.needs_network and offline:
+                    results.append(
+                        RunResult(name=r.name, version=r.version(ctx), status="skipped", reason="--offline")
+                    )
+                else:
+                    to_run.append(r)
+            for skipped in results:  # switched off or --offline: shown as skipped, never run
+                events.note(
+                    "scanner.result",
+                    name=skipped.name,
+                    status="skipped",
+                    findings=0,
+                    duration_s=0,
+                    reason=skipped.reason or "",
+                    version=skipped.version or "",
+                )
+            with ThreadPoolExecutor(max_workers=max(1, user_cfg.jobs)) as pool:
+                results += list(pool.map(lambda r: _run_one(r, ctx, events), to_run))
+            shutil.rmtree(work, ignore_errors=True)
+            order = {n: i for i, n in enumerate(RUNNER_NAMES)}
+            results.sort(key=lambda r: order.get(r.name, 99))
 
-    mode = "since" if opts.since else ("fast" if opts.fast else "full")
-    info = RunInfo(
-        root=root,
-        started=started,
-        duration_s=time.monotonic() - t0,
-        mode=mode,
-        threshold=threshold,
-        commit=gi.commit,
-        branch=gi.branch,
-        dirty=gi.dirty,
-        since=opts.since,
-        offline=offline,
-        llm=llm,
-        warnings=_warnings(paths, {n: t.published for n, t in lock.tools.items()})
-        + _coverage_warnings(detection, opts.only),
-        errors=errors,
-        expired_baseline=[f"{e.tool} {e.rule} {e.path} (expired {e.expires})" for e in expired],
-        verbose=opts.verbose,
-        review=review.to_dict() if review else None,
-    )
-    failed = any(r.status == "error" for r in results) or bool(errors)
-    if at_or_above(findings, threshold):
-        info.exit_code = EXIT_FINDINGS
-    elif failed:
-        info.exit_code = EXIT_ERROR
-    elif opts.require_llm and not llm.startswith(("done", "partial")):
-        info.exit_code = EXIT_LLM_UNAVAILABLE
-    else:
-        info.exit_code = EXIT_OK
+            classes = {cls.name: cls for cls in ALL_RUNNERS}
+            scope = set(detection.files) if detection.from_git else None
+            raw: list[Finding] = []
+            for res in results:
+                res.findings = _post_filter(classes.get(res.name), res.findings, project_cfg.exclude, scope)
+                raw += res.findings
+            hide_secret_lines(raw)
+            scrub_findings(raw, ctx.redactor)
+            findings = dedupe(raw)
+            try:
+                expired = baseline_mod.apply(findings, baseline_mod.load(root))
+            except baseline_mod.BaselineError as exc:
+                errors.append(str(exc))
+                expired = []
+            findings = group_policy_findings(findings)
+            mark_review(findings)
+            order_and_number(findings)
+            for f in findings:
+                if f.path:
+                    events.note(
+                        "finding.detected",
+                        f.id,
+                        path=f.path,
+                        line=f.line or 0,
+                        category=f.category or "",
+                        cwe=list(f.cwe),
+                        severity=f.severity.label,
+                        bug_type=bug_type_of(f),
+                        district=district_of(f.path),
+                        tool=f.tool,
+                    )
 
-    report_path = write_report(run, info, results, findings)
-    summary_path = write_summary(run, render_summary(info, results, findings, report_path))
-    mark_latest(run)
-    prune_runs(paths.runs, root)
-    return ScanOutcome(run, summary_path, report_path, info.exit_code, findings, results, info)
+            llm, review = _llm_phase(
+                opts, paths, root, detection, findings, ctx.redactor, previous_commit, changed, errors
+            )
+
+            mode = "since" if opts.since else ("fast" if opts.fast else "full")
+            info = RunInfo(
+                root=root,
+                started=started,
+                duration_s=time.monotonic() - t0,
+                mode=mode,
+                threshold=threshold,
+                commit=gi.commit,
+                branch=gi.branch,
+                dirty=gi.dirty,
+                since=opts.since,
+                offline=offline,
+                llm=llm,
+                warnings=_warnings(paths, {n: t.published for n, t in lock.tools.items()})
+                + _coverage_warnings(detection, opts.only),
+                errors=errors,
+                expired_baseline=[f"{e.tool} {e.rule} {e.path} (expired {e.expires})" for e in expired],
+                verbose=opts.verbose,
+                review=review.to_dict() if review else None,
+            )
+            failed = any(r.status == "error" for r in results) or bool(errors)
+            if at_or_above(findings, threshold):
+                info.exit_code = EXIT_FINDINGS
+            elif failed:
+                info.exit_code = EXIT_ERROR
+            elif opts.require_llm and not llm.startswith(("done", "partial")):
+                info.exit_code = EXIT_LLM_UNAVAILABLE
+            else:
+                info.exit_code = EXIT_OK
+
+            report_path = write_report(run, info, results, findings)
+            summary_path = write_summary(run, render_summary(info, results, findings, report_path))
+            mark_latest(run)
+            prune_runs(paths.runs, root)
+            events.note("run.end", exit_code=info.exit_code, findings=len(findings), llm=llm)
+            return ScanOutcome(run, summary_path, report_path, info.exit_code, findings, results, info)
+    except BaseException:
+        events.note("run.end", exit_code=EXIT_ERROR)
+        raise
