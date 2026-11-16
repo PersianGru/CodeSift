@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 
 from codesift.gitutil import list_files, safe_git_env
 from codesift.validate import ValidateError
-from codesift.validate.pack import PackError, pack_tree, safe_unpack
+from codesift.validate.pack import PackError, pack_tree, safe_name
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_FILES = 20_000
@@ -245,42 +245,88 @@ def create_workspace(
     return ws
 
 
-def _from_tree(project: Path, ws: Workspace, ref: str, never_send: list[str], secret_paths: set[str]) -> None:
-    from codesift.gitutil import ref_exists
-
-    if not ref_exists(project, ref):
-        raise ValidateError(f"unknown git ref {ref!r}")
+def _git_bytes(project: Path, *args: str, stdin: bytes | None = None) -> bytes:
     exe = shutil.which("git")
     if exe is None:
         raise ValidateError("git is required")
     try:
         proc = subprocess.run(  # noqa: S603 - fixed argv, validated ref
-            [exe, "-C", str(project), "--no-pager", "archive", "--format=tar", ref],
+            [exe, "-C", str(project), "--no-pager", *args],
+            input=stdin,
             capture_output=True,
             timeout=300,
             env=safe_git_env(),
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        raise ValidateError("git archive failed") from None
+        raise ValidateError(f"git {args[0]} failed") from None
     if proc.returncode != 0:
-        raise ValidateError("git archive failed")
+        raise ValidateError(f"git {args[0]} failed")
+    return proc.stdout
 
-    def accept(rel: str) -> bool:
+
+def _from_tree(project: Path, ws: Workspace, ref: str, never_send: list[str], secret_paths: set[str]) -> None:
+    """Copy `ref`'s files exactly as git stores them (no autocrlf / eol / filter conversion).
+
+    `git diff` produces patches in that same stored form, so a working-tree diff applies to this copy
+    on every OS. (`git archive` would convert line endings - CRLF on Windows with core.autocrlf=true -
+    and the LF patch would then not apply.)"""
+    from codesift.gitutil import ref_exists
+
+    if not ref_exists(project, ref):
+        raise ValidateError(f"unknown git ref {ref!r}")
+    listing = _git_bytes(project, "ls-tree", "-r", "-l", "-z", "--full-tree", ref)
+    wanted: list[tuple[str, str, bool]] = []  # (path, blob id, executable)
+    for entry in listing.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, raw_path = entry.partition(b"\t")
+        fields = meta.split()
+        rel_raw = raw_path.decode("utf-8", "surrogateescape")
+        if len(fields) != 4:
+            continue
+        mode, kind, oid, size = (f.decode("ascii", "replace") for f in fields)
+        try:
+            rel = safe_name(rel_raw)
+        except PackError:
+            ws.excluded[rel_raw[:200]] = "unsafe path"
+            continue
         reason = exclusion_reason(rel, never_send, secret_paths)
+        if reason is None and mode == "120000":
+            reason = "symlink"
+        elif reason is None and kind != "blob":
+            reason = "submodule" if kind == "commit" else "not a regular file or too large"
+        elif reason is None and (not size.isdigit() or int(size) > MAX_FILE_BYTES):
+            reason = "not a regular file or too large"
         if reason:
             ws.excluded[rel] = reason
-        return reason is None
-
-    skipped: list[tuple[str, str]] = []
-    try:
-        ws.files = safe_unpack(
-            proc.stdout, ws.root, strict=False, accept=accept, skipped=skipped, max_file=MAX_FILE_BYTES
-        )
-    except PackError as exc:
-        raise ValidateError(f"cannot copy {ref}: {exc}") from None
-    for rel, why in skipped:
-        ws.excluded[rel] = why
+        else:
+            wanted.append((rel, oid, mode == "100755"))
+    if len(wanted) > MAX_FILES:
+        raise ValidateError(f"the project has more than {MAX_FILES} files")
+    if not wanted:
+        return
+    request = "".join(oid + "\n" for _, oid, _ in wanted).encode("ascii")
+    out = _git_bytes(project, "cat-file", "--batch", stdin=request)
+    root = ws.root.resolve()
+    pos = 0
+    for rel, oid, executable in wanted:
+        header_end = out.index(b"\n", pos)
+        header = out[pos:header_end].split()
+        if len(header) != 3 or header[0].decode("ascii", "replace") != oid or header[1] != b"blob":
+            raise ValidateError(f"cannot copy {ref}: unexpected object for {rel}")
+        length = int(header[2])
+        data = out[header_end + 1 : header_end + 1 + length]
+        pos = header_end + 1 + length + 1  # each blob is followed by a newline
+        target = (ws.root / rel).resolve()
+        if not target.is_relative_to(root):
+            ws.excluded[rel] = "unsafe path"
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        if executable:
+            target.chmod(0o755)
+        ws.files.append(rel)
 
 
 def project_diff(project: Path, base: str = "HEAD", target: str | None = None) -> str:

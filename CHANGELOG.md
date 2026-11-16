@@ -19,6 +19,8 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 - Sandbox jobs on Docker 29: `/work` is mounted writable for the job user.
 - Sandbox input check: BusyBox `tar` hiding `../` member names no longer slips through.
 - Tests no longer read or write the real `~/.codesift`.
+- `sift validate` / `sift fix` on Windows: the working-tree change applies to the copy of the project
+  again (with `core.autocrlf=true` the copy had CRLF line endings and the LF patch did not apply).
 
 ## [0.2.0] - 2026-11-14
 
