@@ -88,7 +88,7 @@ sift fix / sift validate
 | `validate/engine.py`, `events.py`, `report.py`, `commands.py` | orchestration, event log, artefacts, CLI glue |
 | `fix/base.py`, `config.py`, `consent.py`, `prompts.py`, `ladder.py` | protocol + edits, `fix.toml`, consent, prompts, ladder |
 | `fix/gateway_fixer.py`, `claude_api.py`, `claude_cli.py` | the three backends |
-| `ui/server.py`, `ui/state.py`, `ui/static/` | loopback server, runs/demo/decisions, city + dashboard |
+| `ui/server.py`, `ui/state.py`, `ui/static/` | loopback server, runs/demo/decisions, the 3D realm, the 2D map and the table |
 
 Decisions: ADR-0011 (scope), 0012 (sandbox), 0013 (fixers/consent), 0014 (gateway), 0015 (UI),
 0016 (project-supplied PoCs only). Threat model: [threat-model.md](threat-model.md).

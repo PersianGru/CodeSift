@@ -15,6 +15,8 @@ python -m venv .venv
 ```
 
 All four must be clean before a commit. `black` line length is 110; `mypy` is `--strict`.
+GitHub Actions runs the same four on Linux and Windows for every pull request
+(`.github/workflows/ci.yml`); the tests that need the installed scanners skip there.
 
 ## Conventions
 

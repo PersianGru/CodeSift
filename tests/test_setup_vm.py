@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,7 +67,7 @@ def fake_ssh(monkeypatch: pytest.MonkeyPatch, paths: Paths, tmp_path: Path) -> F
     monkeypatch.setattr(vm_keys, "generate_key", keygen)
     monkeypatch.setattr(vm_keys, "scan_host_keys", keyscan)
     monkeypatch.setattr(bootstrap, "runner", runner)
-    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: "ssh")
+    monkeypatch.setattr(shutil, "which", lambda name: "ssh")
     monkeypatch.setattr(bootstrap, "default_ssh_dir", lambda: ssh_dir)
     monkeypatch.setattr(vm_commands, "cmd_image_pull", pull)
     monkeypatch.setattr(vm_commands, "doctor_lines", doctor)
@@ -81,11 +82,11 @@ def _admin_script_of(argv: list[str]) -> str:
 
 def test_vm_step_password_admin_does_everything(paths: Paths, fake_ssh: Fake) -> None:
     # host, port, pin, admin user, password, key folder (Enter = the user's SSH folder)
-    answers = ["192.168.0.50", "", "yes", "", "password", ""]
+    answers = ["192.168.56.10", "", "yes", "", "password", ""]
     script = Script(answers, [])
     assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 0, script.text
     cfg = load_vm_config(paths)
-    assert cfg.host == "192.168.0.50" and cfg.user == "codesift" and not cfg.key_user_supplied
+    assert cfg.host == "192.168.56.10" and cfg.user == "codesift" and not cfg.key_user_supplied
     assert Path(cfg.key_path) == fake_ssh.ssh_dir / vm_keys.KEY_NAME
     assert cfg.host_key_fingerprint == HOSTKEY.fingerprint and cfg.image_id
     assert fake_ssh.calls[-2:] == ["pull", "doctor"]
@@ -93,7 +94,7 @@ def test_vm_step_password_admin_does_everything(paths: Paths, fake_ssh: Fake) ->
     opts = [argv[i + 1] for i, a in enumerate(argv) if a == "-o"]
     assert "PubkeyAuthentication=no" in opts and "StrictHostKeyChecking=yes" in opts
     assert "ForwardAgent=no" in opts and not any(o.startswith("IdentityFile") for o in opts)
-    assert argv[1:4] == ["-F", "none", "-t"] and argv[-2] == "root@192.168.0.50"
+    assert argv[1:4] == ["-F", "none", "-t"] and argv[-2] == "root@192.168.56.10"
     remote = _admin_script_of(argv)
     assert "U='codesift'" in remote and PUB.rsplit(" ", 1)[0] in remote
     assert 'command="/usr/local/bin/codesift-gate"' in remote
@@ -124,7 +125,7 @@ def test_vm_step_reuses_existing_key_in_folder(paths: Paths, fake_ssh: Fake) -> 
     fake_ssh.ssh_dir.mkdir()
     (fake_ssh.ssh_dir / vm_keys.KEY_NAME).write_text("PRIVATE-KEY-MATERIAL", encoding="utf-8")
     (fake_ssh.ssh_dir / (vm_keys.KEY_NAME + ".pub")).write_text(PUB + chr(10), encoding="utf-8")
-    script = Script(["192.168.0.50", "", "yes", "", "password", ""], [])
+    script = Script(["192.168.56.10", "", "yes", "", "password", ""], [])
     assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 0
     assert not any(c.startswith("keygen") for c in fake_ssh.calls)
     assert "using the existing key" in script.text
@@ -139,16 +140,16 @@ def test_vm_step_requires_literal_yes_to_pin(paths: Paths, fake_ssh: Fake) -> No
 
 def test_vm_step_admin_failure_saves_nothing(paths: Paths, fake_ssh: Fake) -> None:
     fake_ssh.admin_rc = bootstrap.NO_ROOT_RC
-    script = Script(["192.168.0.50", "", "yes", "pi", "password", ""], [])
+    script = Script(["192.168.56.10", "", "yes", "pi", "password", ""], [])
     assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 2
     assert "not root and has no sudo or doas" in script.text
     assert not paths.vm_file.exists()
     fake_ssh.admin_rc = 255
-    script = Script(["192.168.0.50", "", "yes", "", "password", ""], [])
+    script = Script(["192.168.56.10", "", "yes", "", "password", ""], [])
     assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 2
-    assert "could not log in as root@192.168.0.50" in script.text
+    assert "could not log in as root@192.168.56.10" in script.text
     fake_ssh.admin_rc = bootstrap.SUDO_REFUSED_RC
-    script = Script(["192.168.0.50", "", "yes", "adm-docker", "password", ""], [])
+    script = Script(["192.168.56.10", "", "yes", "adm-docker", "password", ""], [])
     assert sw.run_setup(sw.SetupOptions(parts=["vm"]), paths, {}, script.io()) == 2
     assert "sudo/doas on the VM refused adm-docker" in script.text
     assert "adm-docker's own password again" in script.text

@@ -4,7 +4,26 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-16
+
+Watch a run as it happens. `sift scan`, `sift validate` and `sift fix` behave as before.
+
 ### Added
+- `sift ui` 3D view rebuilt as one place: an island at night with the castle on a hill, a river and
+  a bridge, a wizard's tower, the dungeon as an open pit with stairs going down into it, and a
+  graveyard for the project. Every road joins two places and every light sits on something.
+  - A champion (one per fix backend) walks to the skeleton it is fixing and duels it; each proof
+    result is a blow, and the finding's outcome decides the skeleton's fate.
+  - An LLM call is a raven (a failed call falls), a VM command is a rune on the dungeon road, and
+    the dungeon's wards show the isolation self-test.
+  - The camera eases toward the action and back; it stops when you touch it and never moves by
+    itself under `prefers-reduced-motion`.
+- `sift ui` status strip over every view: run state, findings by severity (a shape and a number
+  each), and lamps for scanners, LLM calls and the sandbox VM. The event log and the key fold away,
+  and details open in a drawer only when something is clicked.
+- `sift ui` 2D view redrawn as the same realm seen from above, still on a plain canvas without
+  three.js.
+- Continuous integration on GitHub Actions: tests, mypy, ruff and black on Linux and Windows.
 - `sift top`: a live terminal view of the newest scan or fix, drawn like an action-game HUD (like
   btop): scanners as the party, findings as monsters, the LLM gateway as the oracle tower, the sandbox
   VM as the dungeon, and a battle log. Built only from the run's events; `--once` prints one frame,

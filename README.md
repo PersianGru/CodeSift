@@ -1,18 +1,25 @@
 # CodeSift
 
+[![CI](https://github.com/PersianGru/CodeSift/actions/workflows/ci.yml/badge.svg)](https://github.com/PersianGru/CodeSift/actions/workflows/ci.yml)
+
 CodeSift is one command that runs free, open-source security scanners (gitleaks, osv-scanner, trivy,
 opengrep, ruff/bandit, pip-audit, zizmor, …) on any code project, has a model behind **your
 OpenAI-compatible LLM gateway** triage the findings, and writes a **short `summary.md`** that a person
 or an AI assistant can read cheaply.
 
-Version 0.2.0 adds a second half: **prove fixes**. `sift fix` lets AI fixers (a model through your
+Since 0.2.0 there is a second half: **prove fixes**. `sift fix` lets AI fixers (a model through your
 LLM gateway, the Claude CLI or the Claude API) propose patches. Then deterministic checks decide
 whether a patch works: a mechanical patch policy, your project's tests and proofs of concept run in a
 **disposable, network-less container on a separate sandbox VM**, and a re-scan. The output is a
-patch for you to review. Nothing is ever applied, merged or pushed automatically. `sift ui` shows
-runs live as a 3D map of the real scanners, models and sandbox VM, or as a plain dashboard.
+patch for you to review. Nothing is ever applied, merged or pushed automatically.
 
-> **Status: v0.2.0** (2026-11-14). See [CHANGELOG.md](CHANGELOG.md),
+`sift ui` shows a run live, as it happens: a small 3D realm where every scanner is a hero, every
+finding a skeleton, the LLM gateway a wizard's tower and the sandbox VM a dungeon - or a light 2D
+map, or a plain table. Everything that moves is one real event from the run.
+
+![sift ui: a fix run shown as a small fantasy realm](docs/img/sift-ui-realm.jpg)
+
+> **Status: v0.3.0** (2026-11-16). See [CHANGELOG.md](CHANGELOG.md),
 > [docs/validate-implementation-report.md](docs/validate-implementation-report.md) and the
 > [known limits](#known-limits). MIT licence.
 
@@ -28,13 +35,13 @@ What CodeSift never does is listed in [RULES.md](RULES.md):
 Requires Python ≥ 3.11 and git (plus an OpenSSH client for the sandbox VM). Windows (PowerShell):
 
 ```powershell
-git clone --branch v0.2.0 https://github.com/PersianGru/CodeSift.git "$HOME\codesift-src"; & "$HOME\codesift-src\install.ps1"
+git clone --branch v0.3.0 https://github.com/PersianGru/CodeSift.git "$HOME\codesift-src"; & "$HOME\codesift-src\install.ps1"
 ```
 
 Linux / macOS:
 
 ```bash
-git clone --branch v0.2.0 https://github.com/PersianGru/CodeSift.git ~/codesift-src && ~/codesift-src/install.sh
+git clone --branch v0.3.0 https://github.com/PersianGru/CodeSift.git ~/codesift-src && ~/codesift-src/install.sh
 ```
 
 The installer does the following:

@@ -89,8 +89,8 @@ def test_no_product_names_in_ui_and_help_strings() -> None:
 
 def test_versions_agree() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert data["project"]["version"] == __version__ == "0.2.0"
-    assert "## [0.2.0]" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert data["project"]["version"] == __version__ == "0.3.0"
+    assert "## [0.3.0]" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
 def test_package_data_present() -> None:

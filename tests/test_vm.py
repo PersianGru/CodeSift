@@ -64,7 +64,7 @@ def test_host_injection_rejected(host: str) -> None:
         validate_host(host)
 
 
-@pytest.mark.parametrize("host", ["vm.example.com", "192.168.0.50", "fd00::1", "[fd00::1]", "vm-1"])
+@pytest.mark.parametrize("host", ["vm.example.com", "192.168.56.10", "fd00::1", "[fd00::1]", "vm-1"])
 def test_host_ok(host: str) -> None:
     assert validate_host(host)
 
@@ -565,7 +565,7 @@ def test_host_key_falls_back_to_handshake(monkeypatch: pytest.MonkeyPatch) -> No
         return subprocess.CompletedProcess(argv, 255, b"", b"Permission denied")
 
     monkeypatch.setattr(keys, "_tool", lambda name: name)
-    monkeypatch.setattr(keys.shutil, "which", lambda name: name)
+    monkeypatch.setattr(shutil, "which", lambda name: name)
     monkeypatch.setattr(subprocess, "run", run)
     assert keys.scan_host_keys("vm.example.test", 2222) == [HostKey("ssh-ed25519", "A" * 68)]
     ssh_calls = [c for c in calls if c[0] == "ssh"]
@@ -584,7 +584,7 @@ def test_host_key_none_anywhere_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     from codesift.vm import keys
 
     monkeypatch.setattr(keys, "_tool", lambda name: name)
-    monkeypatch.setattr(keys.shutil, "which", lambda name: name)
+    monkeypatch.setattr(shutil, "which", lambda name: name)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 255, b"", b""))
     with pytest.raises(SandboxError, match="no host key"):
         keys.scan_host_keys("vm.example.test", 22)
