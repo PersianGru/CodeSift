@@ -245,6 +245,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--open", action="store_true", help="open the browser")
     p.add_argument("--ci", action="store_true", help="default to the plain dashboard")
 
+    p = sub.add_parser(
+        "top",
+        help="live terminal view of the newest scan or fix (game-style HUD, like btop)",
+        description="Follows the newest run in the terminal: scanners as the party, findings as monsters, "
+        "the LLM gateway as the oracle tower, the sandbox VM as the dungeon. Reads local run files only.",
+    )
+    p.add_argument("--once", action="store_true", help="print one frame and exit (no keys, no screen switch)")
+    p.add_argument("--ascii", action="store_true", help="plain ASCII glyphs for terminals without Unicode")
+
     p = sub.add_parser("report", help="re-print the latest summary for the current project")
     p.add_argument("--last", action="store_true", help="the latest run (default)")
 
@@ -608,6 +617,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.demo:
             runs.demo = DemoRun()
         return run_ui(runs, port=args.port or 0, open_browser=args.open, ci=args.ci)
+    if args.command == "top":
+        from codesift.ui.state import Runs as TopRuns
+        from codesift.ui.top import run_top
+
+        return run_top(TopRuns(get_paths()), once=args.once, ascii_only=args.ascii)
     if args.command == "fix":
         import os
 

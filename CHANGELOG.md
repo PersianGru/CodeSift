@@ -4,6 +4,12 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Added
+- `sift top`: a live terminal view of the newest scan or fix, drawn like an action-game HUD (like
+  btop): scanners as the party, findings as monsters, the LLM gateway as the oracle tower, the sandbox
+  VM as the dungeon, and a battle log. Built only from the run's events; `--once` prints one frame,
+  `--ascii` suits terminals without Unicode.
+
 ### Changed
 - `sift ui` shows a live 3D map of the real run instead of the "living city": this machine with the
   run's scanners, the LLM gateway with your models, and the sandbox VM with its containers. Every

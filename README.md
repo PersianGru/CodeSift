@@ -57,6 +57,7 @@ sift scan                # scanners + LLM triage + summary.md
 sift fix --dry-run       # what would be fixed, and what would be sent where - contacts nothing
 sift fix                 # fixers propose patches, the sandbox and re-scan verify them
 sift ui                  # watch / review runs in the browser (127.0.0.1 only)
+sift top                 # watch the newest run live in the terminal
 ```
 
 `sift validate` proves your own change instead. By default that is the working tree diff against
@@ -136,6 +137,7 @@ patch that does any of the following:
 | `sift validate [PATH] [--patch FILE \| --branch REF] [--finding IDS] [--json]` | prove a change on a copy, in the sandbox |
 | `sift fix [PATH] [--finding IDS] [--min-severity L] [--max-findings N] [--backend B] [--poc none\|project] [--review-patch] [--dry-run] [--json] [--budget-tokens N] [--budget-minutes N]` | AI fixers + deterministic gates; output is a patch |
 | `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI: live 3D system map of scans and fixes + plain dashboard |
+| `sift top [--once] [--ascii]` | live terminal view of the newest scan or fix (game-style HUD; keys: q, ←/→, f, p) |
 | `sift vm setup \| doctor \| status \| reset \| image pull\|build \| admin-script` | sandbox VM management |
 | `sift report --last` | re-print the latest summary |
 | `sift baseline accept <ID…> --reason "…"` / `list` / `prune` | accepted findings |

@@ -61,3 +61,21 @@ The plain dashboard is a table of findings with stage, backend, outcome and gate
 - **Default** when WebGL is unavailable, on small screens, and with `--ci`.
 - **Accessibility**: keyboard accessible, and colour is never the only signal.
 - **Text alternative**: the 3D view keeps a text summary up to date for screen readers.
+
+## `sift top`: the terminal view
+
+`sift top` follows the newest scan or fix in the terminal, with no browser and very little memory.
+It reads the same `events.jsonl` as the web UI, so it shows only what really happened:
+
+| Panel | Shows |
+|---|---|
+| Header | project, scan or fix, LIVE / VICTORY / MONSTERS REMAIN, elapsed time, and a threat bar by severity |
+| Party | one hero per scanner (Rogue = gitleaks, Mage = opengrep, Ranger = trivy, Knight = bandit, Barbarian = ruff, Scout = osv-scanner, Cleric = zizmor, ...): fighting, found N, at camp (skipped) or fallen (error) |
+| Bestiary | one monster per finding, by severity (Skeleton Lord = critical ... Bones = info), with its file and its fate in a fix run (slain = fixed and verified, wounded = fixed but unproven, escaped = rejected) |
+| Oracle tower | the LLM gateway host and models, calls (ravens), failures, tokens, and a latency graph |
+| Dungeon | the sandbox VM, jobs, commands, failures and a job-time graph (scans never use it) |
+| Battle log | every event in plain words, newest first |
+
+Keys: `q` quits, `←`/`→` (or `[` `]`) step to older or newer runs, `f` follows the newest run again,
+`p` pauses. `--once` prints one frame and exits; `--ascii` swaps box drawing for plain ASCII.
+`NO_COLOR` turns colour off.
