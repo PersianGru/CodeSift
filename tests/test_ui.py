@@ -257,12 +257,14 @@ def test_no_inline_script_or_style() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)
     assert "<style" not in html and " style=" not in html and "onclick" not in html.lower()
-    for js in ("app.js", "world.js", "map2d.js", "realm.js", "dashboard.js"):
+    for js in ("app.js", "world.js", "map2d.js", "realm.js", "realm-kit.js", "dashboard.js"):
         assert "innerHTML" not in (STATIC_DIR / js).read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-@pytest.mark.parametrize("name", ["app.js", "world.js", "map2d.js", "realm.js", "dashboard.js"])
+@pytest.mark.parametrize(
+    "name", ["app.js", "world.js", "map2d.js", "realm.js", "realm-kit.js", "dashboard.js"]
+)
 def test_js_syntax(name: str) -> None:
     node = shutil.which("node")
     assert node
@@ -294,6 +296,10 @@ def test_kaykit_models_are_what_the_realm_uses() -> None:
     used_props = set(re.findall(r'prop\("([A-Za-z0-9_]+)"', realm))
     used_props |= set(re.findall(r'(?<![A-Za-z])[rl]: "([A-Za-z0-9_]+)"', realm))
     assert used_props and used_props <= props, sorted(used_props - props)
+    # scenery is batched by name (b.add / put): a misspelt name would silently draw nothing
+    scenery = set(re.findall(r'(?:b\.add|this\.batch\.add|put)\("([A-Za-z0-9_]+)"', realm))
+    every = {n["name"] for n in _glb_json("kaykit-props.glb")["nodes"]}
+    assert scenery and scenery <= every, sorted(scenery - every)
     models = set(
         re.findall(
             r'"((?:skeleton_)?(?:knight|barbarian|mage|ranger|rogue|rogue_hooded|warrior|minion))"', realm
@@ -301,6 +307,13 @@ def test_kaykit_models_are_what_the_realm_uses() -> None:
     )
     for m in models | {"knight", "rogue_hooded", "skeleton_mage"}:
         assert _glb_json(f"kaykit-{m}.glb")["skins"], m  # rigged, so the clips can drive it
+
+
+def test_2d_map_stays_free_of_three_js() -> None:
+    assert "THREE" not in (STATIC_DIR / "map2d.js").read_text(encoding="utf-8")
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    scripts = re.findall(r'<script src="([^"]+)"', html)
+    assert scripts and not any("three" in x or "realm" in x for x in scripts)  # 3D loads only when chosen
 
 
 def test_demo_run_uses_every_kind_of_activity() -> None:

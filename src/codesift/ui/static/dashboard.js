@@ -30,7 +30,10 @@
       var tr = el("tr");
       var id = el("td"); id.appendChild(el("code", null, f.id)); tr.appendChild(id);
       tr.appendChild(el("td", null, f.path + (f.line ? ":" + f.line : "")));
-      tr.appendChild(el("td", null, f.severity || ""));
+      var sev = el("td"), tag = el("span", "sev-tag sev-" + (f.severity || "info"));
+      var mark = el("span", "shape"); mark.setAttribute("aria-hidden", "true");
+      tag.appendChild(mark); tag.appendChild(document.createTextNode(f.severity || ""));
+      sev.appendChild(tag); tr.appendChild(sev);
       tr.appendChild(el("td", null, TYPE_NAMES[f.bug_type] || f.bug_type || ""));
       tr.appendChild(el("td", null, f.stage || "waiting"));
       tr.appendChild(el("td", null, f.backend || "—"));

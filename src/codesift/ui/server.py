@@ -46,6 +46,7 @@ STATIC: dict[str, tuple[str, str]] = {
     "/static/app.css": ("app.css", "text/css; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/static/realm.js": ("realm.js", "text/javascript; charset=utf-8"),
+    "/static/realm-kit.js": ("realm-kit.js", "text/javascript; charset=utf-8"),
     "/static/world.js": ("world.js", "text/javascript; charset=utf-8"),
     "/static/map2d.js": ("map2d.js", "text/javascript; charset=utf-8"),
     "/static/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),

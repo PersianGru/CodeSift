@@ -4,13 +4,15 @@
   "use strict";
 
   var SEVERITIES = ["critical", "high", "medium", "low", "info"];
-  var SEV_COLORS = { critical: "#ff5c5c", high: "#ff8a8a", medium: "#f5a524", low: "#7aa2ff", info: "#9aa0aa" };
   var POLL_MS = 3000;
 
   var THREE_SCRIPTS = ["three.min.js", "three-GLTFLoader.js", "three-SkeletonUtils.js"];
   var VIEW_KEY = "codesift.view";
   var state = { run: null, runs: [], pinned: false, config: {}, findings: {}, order: [], history: [], map: null, source: null, view: "3d",
-    stats: { findings: 0, llmCalls: 0, llmFailed: 0, tokensIn: 0, tokensOut: 0, vmJobs: 0, scanners: 0 }, started: null, ended: null };
+    stats: { findings: 0, llmCalls: 0, llmFailed: 0, tokensIn: 0, tokensOut: 0, vmJobs: 0, scanners: 0 }, started: null, ended: null,
+    hud: null };
+  function freshHud() { return { kind: "", project: "", exit: null, phase: "", scanning: {}, llm: 0, vm: 0, vmFailed: 0, wards: "" }; }
+  state.hud = freshHud();
   var $ = function (id) { return document.getElementById(id); };
 
   function text(node, value) { node.textContent = String(value); }
@@ -45,11 +47,13 @@
     var st = state.stats;
     text($("stat-findings"), st.findings);
     text($("stat-scanners"), st.scanners);
-    text($("stat-llm"), st.llmCalls + (st.llmFailed ? " (" + st.llmFailed + " failed)" : ""));
-    text($("stat-tokens"), fmtTokens(st.tokensIn) + " / " + fmtTokens(st.tokensOut));
+    text($("stat-llm"), st.llmCalls);
+    text($("stat-llm-lost"), st.llmFailed ? st.llmFailed + " failed" : "");
+    text($("stat-tokens"), fmtTokens(st.tokensIn) + " / " + fmtTokens(st.tokensOut) + " tok");
     text($("stat-jobs"), st.vmJobs);
     text($("stat-time"), elapsed());
     renderSeverities();
+    renderHud();
     if (state.map) { text($("city-alt"), state.map.describe()); }
   }
 
@@ -60,23 +64,49 @@
     setTimeout(function () { renderQueued = false; render(); }, 150);
   }
 
+  // Severity counters: a shape and a number each (never colour alone). Built once, then only the numbers change.
+  var sevCells = null;
   function renderSeverities() {
     var ul = $("legend");
-    while (ul.firstChild) { ul.removeChild(ul.firstChild); }
+    if (!sevCells) {
+      sevCells = {};
+      SEVERITIES.forEach(function (sev) {
+        var li = document.createElement("li");
+        li.className = "sev-chip sev-" + sev;
+        var sh = document.createElement("span"); sh.className = "shape"; sh.setAttribute("aria-hidden", "true"); li.appendChild(sh);
+        var count = document.createElement("strong"); count.className = "count"; count.textContent = "0"; li.appendChild(count);
+        var name = document.createElement("span"); name.className = "sev-name"; name.textContent = sev; li.appendChild(name);
+        ul.appendChild(li);
+        sevCells[sev] = { li: li, count: count, n: -1 };
+      });
+    }
+    var by = {};
+    state.order.forEach(function (id) { var sv = state.findings[id].severity; by[sv] = (by[sv] || 0) + 1; });
     SEVERITIES.forEach(function (sev) {
-      var n = state.order.filter(function (id) { return state.findings[id].severity === sev; }).length;
-      var li = document.createElement("li");
-      var sw = document.createElement("span");
-      sw.className = "swatch";
-      sw.style.background = SEV_COLORS[sev];
-      li.appendChild(sw);
-      li.appendChild(document.createTextNode(sev));
-      var count = document.createElement("span");
-      count.className = "count";
-      count.textContent = String(n);
-      li.appendChild(count);
-      ul.appendChild(li);
+      var c = sevCells[sev], n = by[sev] || 0;
+      if (c.n !== n) { c.n = n; c.count.textContent = String(n); c.li.classList.toggle("zero", n === 0); }
     });
+  }
+
+  // The status strip: is it running, what is it doing, what is busy, how did it end.
+  function renderHud() {
+    var h = state.hud, st = state.stats, box = $("hud-state");
+    var mode = !h.kind ? "idle" : h.exit === null ? "running" : h.exit === 0 ? "won" : "lost";
+    if (box.getAttribute("data-state") !== mode) { box.setAttribute("data-state", mode); }
+    var left = state.order.filter(function (id) { var o = state.findings[id].outcome || ""; return o.indexOf("fixed") !== 0; }).length;
+    text($("hud-title"), mode === "idle" ? "Waiting for a run" : mode === "running" ? (h.kind === "scan" ? "Scanning" : "Fixing") + " · " + h.project
+      : mode === "won" ? "Victory · exit 0" : "Not clean · exit " + h.exit);
+    text($("hud-phase"), mode === "idle" ? "Start sift scan or sift fix in a project" : mode === "running" ? (h.phase || "starting")
+      : mode === "won" ? h.project + " · " + st.findings + " finding(s), nothing left standing"
+        : h.project + " · " + left + " of " + st.findings + " finding(s) still stand");
+    var out = Object.keys(h.scanning).length;
+    $("busy-scan").setAttribute("data-on", out ? "true" : "false");
+    text($("busy-scan-note"), out ? out + " searching" : "done");
+    $("busy-llm").setAttribute("data-on", h.llm > 0 ? "true" : "false");
+    $("busy-vm").setAttribute("data-on", h.vm > 0 ? "true" : "false");
+    $("busy-vm").classList.toggle("warded", h.wards === "holding");
+    $("busy-vm").classList.toggle("breached", h.wards === "failed");
+    text($("busy-vm-note"), h.wards ? "wards " + h.wards : h.kind === "scan" ? "not used by scans" : "jobs");
   }
 
   function describe(ev) {
@@ -135,9 +165,28 @@
     scheduleRender();
   }
 
-  // The footer counts come from the events themselves, whichever view is showing.
+  // The counts and the status strip come from the events themselves, whichever view is showing.
   function countStats(ev) {
-    var d = ev.data || {}, st = state.stats;
+    var d = ev.data || {}, st = state.stats, h = state.hud, id = ev.finding || "";
+    switch (ev.type) {
+      case "run.start": h.kind = d.kind || d.mode || "fix"; h.project = d.project || ""; h.exit = null; h.phase = "heroes gather at the castle"; break;
+      case "run.end": h.exit = d.exit_code === undefined ? 1 : d.exit_code; h.scanning = {}; h.llm = 0; h.vm = 0; break;
+      case "scanner.start": h.scanning[d.name] = true; h.phase = "heroes search the wilds · " + Object.keys(h.scanning).join(", "); break;
+      case "scanner.result":
+        delete h.scanning[d.name];
+        h.phase = Object.keys(h.scanning).length ? "heroes search the wilds · " + Object.keys(h.scanning).join(", ") : "the search is over";
+        break;
+      case "finding.detected": h.phase = "skeletons rise · " + id + " " + (d.severity || ""); break;
+      case "llm.request": h.llm += 1; if (d.purpose === "triage") { h.phase = "the oracle weighs " + id; } break;
+      case "llm.response": h.llm = Math.max(0, h.llm - 1); if (!d.ok) { h.phase = "a raven was lost · " + (d.error || "failed"); } break;
+      case "vm.command": h.vm += 1; break;
+      case "vm.result": h.vm = Math.max(0, h.vm - 1); if (d.rc !== 0) { h.vmFailed += 1; } break;
+      case "selftest.result": h.wards = d.passed ? "holding" : "failed"; h.phase = d.passed ? "the dungeon's wards hold" : "the dungeon's wards FAILED"; break;
+      case "fix.attempt": h.phase = (d.backend || "a champion") + " duels " + id + (d.attempt > 1 ? " · attempt " + d.attempt : ""); break;
+      case "stage.enter": if (d.stage !== "triage" && d.stage !== "fix") { h.phase = id + " · " + (d.stage === "sandbox" ? "proving it in the dungeon" : d.stage === "verify" ? "the proof is read" : d.stage); } break;
+      case "finding.outcome": h.phase = id + " · " + String(d.outcome || "").replace(/_/g, " "); break;
+      default: break;
+    }
     if (ev.type === "finding.detected") { st.findings += 1; }
     if (ev.type === "scanner.result" && d.status !== "skipped") { st.scanners += 1; }
     if (ev.type === "llm.response") { st.llmCalls += 1; if (!d.ok) { st.llmFailed += 1; } st.tokensIn += d.tokens_in || 0; st.tokensOut += d.tokens_out || 0; }
@@ -156,10 +205,33 @@
     });
   }
 
+  // The details drawer: what was clicked on the map. It stays closed until something is chosen.
   function showInfo(pick, lines) {
-    var box = $("info");
+    var box = $("info"), drawer = $("drawer");
     while (box.firstChild) { box.removeChild(box.firstChild); }
-    (lines || []).forEach(function (t) { var p = document.createElement("p"); p.textContent = t; box.appendChild(p); });
+    if (!pick || !lines || !lines.length) { drawer.classList.add("hidden"); return; }
+    var head = String(lines[0]).split(" · ");
+    text($("info-h"), head[0]);
+    if (head.length > 1) { var sub = document.createElement("p"); sub.className = "lead"; sub.textContent = head.slice(1).join(" · "); box.appendChild(sub); }
+    lines.slice(1).forEach(function (t) { var p = document.createElement("p"); p.textContent = t; box.appendChild(p); });
+    var f = pick.kind === "finding" ? state.findings[pick.key] : null;
+    if (f && f.outcome) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = "Review the patch";
+      b.addEventListener("click", function () { review.open(f); });
+      box.appendChild(b);
+    }
+    drawer.classList.remove("hidden");
+  }
+
+  function toggle(panelId, buttonId, bodyId, openWord, closedWord) {
+    $(buttonId).addEventListener("click", function () {
+      var open = $(panelId).getAttribute("data-open") !== "true";
+      $(panelId).setAttribute("data-open", open ? "true" : "false");
+      $(buttonId).setAttribute("aria-expanded", open ? "true" : "false");
+      text($(buttonId), open ? openWord : closedWord);
+      if (bodyId) { $(bodyId).classList.toggle("hidden", !open); }
+    });
   }
 
   function webgl() {
@@ -203,7 +275,7 @@
       create = Promise.resolve(function (el) { return window.SiftMap2D.create(el); });
     } else {
       text($("city-alt"), "Loading the 3D view.");
-      create = loadScripts(THREE_SCRIPTS.concat(["realm.js"])).then(function () {
+      create = loadScripts(THREE_SCRIPTS.concat(["realm-kit.js", "realm.js"])).then(function () {
         if (!window.SiftRealm || !window.SiftRealm.available()) { throw new Error("no WebGL"); }
         return function (el) { return window.SiftRealm.create(el); };
       });
@@ -213,6 +285,8 @@
       state.map = make($("city-canvas"));
       state.map.onSelect(showInfo);
       var map = state.map;
+      map.setSpeed(parseFloat($("speed").value));
+      map.setPaused($("pause").getAttribute("aria-pressed") === "true");
       state.history.forEach(function (ev) { map.handle(ev); }); // a view opened mid-run catches up
       text($("city-alt"), map.describe());
     }).catch(function () {
@@ -224,6 +298,7 @@
   function resetStats() {
     state.stats = { findings: 0, llmCalls: 0, llmFailed: 0, tokensIn: 0, tokensOut: 0, vmJobs: 0, scanners: 0 };
     state.started = null; state.ended = null;
+    state.hud = freshHud();
   }
 
   function loadRun(id) {
@@ -233,7 +308,8 @@
     resetStats();
     var ol = $("event-log");
     while (ol.firstChild) { ol.removeChild(ol.firstChild); }
-    showInfo(null, ["Click the CodeSift core, a scanner, a model or the VM."]);
+    showInfo(null);
+    render();
     if (state.map) { state.map.dispose(); state.map = null; }
     $("run-select").value = id;
     getJSON("/api/run/" + encodeURIComponent(id) + "/report").then(function (report) {
@@ -324,6 +400,9 @@
       text($("pause"), p ? "Resume" : "Pause");
       if (state.map) { state.map.setPaused(p); }
     });
+    $("info-close").addEventListener("click", function () { showInfo(null); });
+    toggle("feed", "feed-toggle", null, "Less", "More");
+    toggle("key", "key-toggle", "key-body", "Hide", "Show");
     $("speed").addEventListener("change", function () { if (state.map) { state.map.setSpeed(parseFloat($("speed").value)); } });
   }
 

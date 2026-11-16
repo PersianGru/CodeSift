@@ -11,18 +11,18 @@
   <a class="skip" href="#dashboard">Skip to the findings table</a>
   <header class="topbar">
     <h1>CodeSift<span class="brackets" aria-hidden="true">()</span> <span class="accent">Live</span></h1>
-    <label class="run-pick">Run
+    <label class="run-pick"><span class="run-word">Run</span>
       <select id="run-select" aria-label="Choose a run"></select>
     </label>
     <div class="controls" role="group" aria-label="View controls">
       <button id="follow" type="button" title="Show the newest run and follow new ones">Follow live</button>
       <span class="seg" role="group" aria-label="View">
-        <button id="view-3d" type="button" aria-pressed="false" title="Fantasy 3D view (needs WebGL)">3D</button>
+        <button id="view-3d" type="button" aria-pressed="false" title="The realm in 3D (needs WebGL)">3D</button>
         <button id="view-2d" type="button" aria-pressed="false" title="Light 2D map: no WebGL, little memory">2D</button>
         <button id="view-table" type="button" aria-pressed="false" title="Plain findings table">Table</button>
       </span>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
-      <label>Speed
+      <label class="speed-pick">Speed
         <select id="speed" aria-label="Animation speed">
           <option value="0.5">0.5×</option>
           <option value="1" selected>1×</option>
@@ -34,35 +34,77 @@
   </header>
 
   <main id="main">
-    <section id="city-view" aria-label="Live system map">
+    <!-- The status strip: run state, findings by severity, what is busy. It floats over the map and sits above the table. -->
+    <section id="hud" class="hud" aria-label="Run status">
+      <div id="hud-state" class="hud-state" data-state="idle">
+        <span class="hud-lamp" aria-hidden="true"></span>
+        <div class="hud-words">
+          <strong id="hud-title">Waiting for a run</strong>
+          <span id="hud-phase" aria-live="polite">Start sift scan or sift fix in a project</span>
+        </div>
+      </div>
+      <div class="hud-findings">
+        <span class="hud-cap">Findings <strong id="stat-findings">0</strong></span>
+        <ul id="legend" class="sev" aria-label="Findings by severity"></ul>
+      </div>
+      <ul class="busy" aria-label="What is busy right now">
+        <li id="busy-scan" data-on="false" title="Scanners: heroes searching the wilds">
+          <span class="busy-lamp" aria-hidden="true"></span><span class="busy-name">Heroes</span>
+          <span class="busy-val"><strong id="stat-scanners">0</strong><span id="busy-scan-note" class="busy-note"></span></span>
+        </li>
+        <li id="busy-llm" data-on="false" title="LLM calls: ravens to the oracle tower">
+          <span class="busy-lamp" aria-hidden="true"></span><span class="busy-name">Oracle</span>
+          <span class="busy-val"><strong id="stat-llm">0</strong><span id="stat-llm-lost" class="busy-note busy-bad"></span><span id="stat-tokens" class="busy-note" title="Tokens in / out">0 / 0</span></span>
+        </li>
+        <li id="busy-vm" data-on="false" title="Sandbox VM jobs: cells in the dungeon">
+          <span class="busy-lamp" aria-hidden="true"></span><span class="busy-name">Dungeon</span>
+          <span class="busy-val"><strong id="stat-jobs">0</strong><span id="busy-vm-note" class="busy-note"></span></span>
+        </li>
+        <li class="busy-time" title="Time since the run started">
+          <span class="busy-name">Time</span><span class="busy-val"><strong id="stat-time">-</strong></span>
+        </li>
+      </ul>
+    </section>
+
+    <section id="city-view" aria-label="Live map of the run">
       <div id="city-canvas" class="canvas-wrap" role="img" aria-describedby="city-alt"></div>
-      <p id="city-alt" class="sr-only" aria-live="polite">Loading the system map.</p>
+      <p id="city-alt" class="sr-only" aria-live="polite">Loading the map.</p>
       <p id="webgl-note" class="note hidden">3D view unavailable here (no WebGL) - showing the 2D map.</p>
 
-      <aside class="panel legend" aria-labelledby="legend-h">
-        <h2 id="legend-h">Findings</h2>
-        <ul id="legend"></ul>
+      <aside id="drawer" class="panel drawer hidden" aria-labelledby="info-h">
+        <div class="panel-head">
+          <h2 id="info-h">Details</h2>
+          <button id="info-close" class="icon-btn" type="button" aria-label="Close details">×</button>
+        </div>
+        <div id="info"></div>
       </aside>
 
-      <aside class="panel info" aria-labelledby="info-h">
-        <h2 id="info-h">Info</h2>
-        <div id="info">Click the CodeSift core, a scanner, a model or the VM.</div>
-      </aside>
-
-      <aside class="panel traffic" aria-labelledby="traffic-h">
-        <h2 id="traffic-h">Traffic (real events only)</h2>
-        <ul>
-          <li><span class="dot t-scan"></span>Scanner started / reported</li>
-          <li><span class="dot t-llm"></span>Request to a model (size = prompt)</li>
-          <li><span class="dot t-reply"></span>Model answer (size = tokens)</li>
-          <li><span class="dot t-sandbox"></span>Command or job on the VM</li>
-          <li><span class="dot t-fail"></span>Failed call, job or scanner</li>
-        </ul>
-      </aside>
-
-      <aside class="panel log" aria-labelledby="log-h">
-        <h2 id="log-h">Event log</h2>
+      <aside id="feed" class="panel feed" aria-labelledby="log-h" data-open="false">
+        <div class="panel-head">
+          <h2 id="log-h">Event log</h2>
+          <button id="feed-toggle" class="icon-btn wide" type="button" aria-expanded="false" aria-controls="event-log">More</button>
+        </div>
         <ol id="event-log" aria-live="off"></ol>
+      </aside>
+
+      <aside id="key" class="panel key" aria-labelledby="key-h" data-open="false">
+        <div class="panel-head">
+          <h2 id="key-h">Key</h2>
+          <button id="key-toggle" class="icon-btn wide" type="button" aria-expanded="false" aria-controls="key-body">Show</button>
+        </div>
+        <div id="key-body" class="hidden">
+          <p class="key-note">Everything that moves is one real event from this run.</p>
+          <dl>
+            <dt>Castle</dt><dd>this machine, CodeSift itself. Its beacon turns green or red when the run ends.</dd>
+            <dt>Hero</dt><dd>a scanner. It walks out to search when it starts and home when it reports.</dd>
+            <dt>Skeleton</dt><dd>a finding. Bigger and better armed means more severe.</dd>
+            <dt>Oracle tower</dt><dd>the LLM gateway. A raven is one call; a raven that falls is a failed call.</dd>
+            <dt>Dungeon</dt><dd>the sandbox VM. A lit cell is one job: blue running, green passed, red failed.</dd>
+            <dt>Wards</dt><dd>the sandbox isolation self-test: cyan when it holds.</dd>
+            <dt>Champion</dt><dd>a fix backend duelling the finding it is fixing.</dd>
+            <dt>Fate</dt><dd>slain = fixed and proven; kneeling = fixed, unproven; standing = not fixed; in fog = inconclusive.</dd>
+          </dl>
+        </div>
       </aside>
     </section>
 
@@ -100,15 +142,6 @@
       <p class="small">A decision is only recorded. CodeSift never applies, merges or pushes a patch.</p>
     </section>
   </main>
-
-  <footer class="stats" aria-label="Run statistics">
-    <span>Findings <strong id="stat-findings">0</strong></span>
-    <span>Scanners done <strong id="stat-scanners">0</strong></span>
-    <span>LLM calls <strong id="stat-llm">0</strong></span>
-    <span>Tokens in / out <strong id="stat-tokens">0 / 0</strong></span>
-    <span>VM jobs <strong id="stat-jobs">0</strong></span>
-    <span>Time <strong id="stat-time">-</strong></span>
-  </footer>
 
   <script src="/static/dashboard.js"></script>
   <script src="/static/world.js"></script>

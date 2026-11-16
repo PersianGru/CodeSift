@@ -32,29 +32,48 @@ moving thing is one real event. With no events, nothing moves.
 
 ### 3D: the realm (fantasy view)
 
+One small island at night: the castle on its hill, a river with a bridge, the wizard's tower on a
+knoll, the dungeon pit against a hillside, and a graveyard (the wilds) across the river. Every road
+joins two places.
+
 | In the realm | Is really |
 |---|---|
-| The **CodeSift castle** and its crystal | this machine; the crystal spins faster with activity and turns green (exit 0) or red at the end |
+| The **CodeSift castle**, its crystal and the beacon on the keep | this machine; the crystal spins faster with activity, and the beacon burns green (exit 0) or red when the run ends |
 | A **hero** in the courtyard | one scanner of the run: Rogue = gitleaks, Mage = opengrep, Ranger = trivy, Knight = bandit, Barbarian = ruff, Scout = osv-scanner, Cleric = zizmor, Alchemist = pip-audit, Bard = composer-audit, Monk = govulncheck |
-| A hero riding out to **the wilds** and fighting there | that scanner running; it comes back when it reports. Sitting at camp = skipped, lying down = error |
-| A **skeleton** rising in the wilds | one finding: Skeleton Lord = critical, Warrior = high, Rogue = medium, Minion = low, small Minion = info. In a fix run a champion (the fix backend) fights it; it falls when the fix is verified |
-| The **oracle tower** and an oracle per model | the LLM gateway and each model (primary and fallback); an oracle casts while a call is in flight |
-| A **raven of light** | one real call or reply: violet = request (bigger = longer prompt), gold = answer (bigger = more tokens), teal = a scanner, blue = the VM, red = a failure |
-| **The dungeon** and its lit cells | the sandbox VM; a cell glows while a job runs and flashes green (rc 0) or red. Scans never enter it |
+| A hero walking out over the bridge and **searching the wilds** | that scanner running; it walks home when it reports. Sitting at camp = skipped, lying down = error |
+| A **skeleton** rising in the wilds | one finding: Skeleton Lord = critical, Warrior = high, Rogue = medium, Minion = low, small Minion = info. Past forty, the rest are counted on banners by severity |
+| A **champion** duelling a skeleton | a fix backend working on that finding. Each proof result is a blow: green when a gate passes, red when it fails |
+| The skeleton's **fate** | lies still = fixed and verified; sits = fixed, unproven; stands and taunts = not fixed; wrapped in fog = inconclusive |
+| The **oracle tower**, an oracle and an orb per model | the LLM gateway and each model (primary and fallback); the orb and the rune ring spin up while a call is in flight |
+| A **raven** | one LLM call: violet out (bigger = longer prompt), gold back (bigger = more tokens). A raven that turns grey and falls is a failed call |
+| A **rune** running along the dungeon road | one command to the sandbox VM: blue out, green back, red on failure |
+| **The dungeon** and its five cells | the sandbox VM; a cell is blue while a job runs, then green (rc 0) or red. Scans never enter it |
+| The dungeon's **wards** | the sandbox isolation self-test: cyan when it holds, flickering red when it fails |
 
-Click the castle, a hero, a skeleton, an oracle, the tower or the dungeon for its real numbers.
-Drag to orbit, wheel or `+`/`-` to zoom, arrow keys to turn. Labels are HTML, so they stay sharp.
-three.js and the models load only when this view is chosen (about 6 MB, from this package).
-Models: KayKit by Kay Lousberg (CC0), see `vendor/THIRD_PARTY.md`; `scripts/pack_kaykit.py`
-rebuilds them from the free packs.
+Click the castle, a hero, a champion, a skeleton, an oracle, the tower or the dungeon for its real
+numbers; hover names it. Drag to orbit, wheel or `+`/`-` to zoom, arrow keys to turn, `Home` to
+reset. The camera eases toward the action and back by itself; touching it stops that for 20 seconds,
+and it never moves by itself under `prefers-reduced-motion`. Labels are HTML, so they stay sharp.
+three.js and the models load only when this view is chosen (about 6 MB, from this package). The
+land, trees, bridge and towers are built in code (`realm-kit.js`); characters and props are KayKit
+by Kay Lousberg (CC0), see `vendor/THIRD_PARTY.md`; `scripts/pack_kaykit.py` rebuilds them from the
+free packs.
 
 ### 2D: the light map
 
-A flat map drawn on a plain canvas: no WebGL and no three.js, so it suits old laptops and low
-memory. This machine with its scanners, the LLM gateway with one orb per model, and the sandbox VM
-with its jobs; dots travel along the links for each real event, and findings sit under the core as
-diamonds coloured by severity. When nothing moves it redraws only a few times a second. It is the
-default on small screens and where WebGL is missing.
+The same realm seen from above, drawn on a plain canvas: no WebGL and no three.js, so it suits old
+laptops, phones and low memory. Heroes are lettered tokens that walk the road, findings are shapes
+by severity in the wilds (the same shapes as the counters in the status strip), ravens fly between
+the keep and the tower, runes run to the dungeon, and the cells and wards light as in 3D. The land
+is painted once; when nothing moves the map redraws only a few times a second. It is the default
+on small screens and where WebGL is missing.
+
+### The status strip and panels
+
+Over every view: the run's state (running, victory, or not clean with the exit code) and what it is
+doing right now, the findings by severity, and three lamps that light while scanners, LLM calls or
+VM commands are in flight. The event log shows two lines until opened; the details drawer opens
+when something is clicked, and offers the patch review for a finished finding.
 
 ### Table
 
