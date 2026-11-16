@@ -7,7 +7,9 @@
   var SEV_COLORS = { critical: "#ff5c5c", high: "#ff8a8a", medium: "#f5a524", low: "#7aa2ff", info: "#9aa0aa" };
   var POLL_MS = 3000;
 
-  var state = { run: null, runs: [], pinned: false, config: {}, findings: {}, order: [], history: [], map: null, source: null,
+  var THREE_SCRIPTS = ["three.min.js", "three-GLTFLoader.js", "three-SkeletonUtils.js"];
+  var VIEW_KEY = "codesift.view";
+  var state = { run: null, runs: [], pinned: false, config: {}, findings: {}, order: [], history: [], map: null, source: null, view: "3d",
     stats: { findings: 0, llmCalls: 0, llmFailed: 0, tokensIn: 0, tokensOut: 0, vmJobs: 0, scanners: 0 }, started: null, ended: null };
   var $ = function (id) { return document.getElementById(id); };
 
@@ -127,12 +129,13 @@
     if (ev.type === "run.start") { state.started = ev.ts; }
     if (ev.type === "run.end") { state.ended = ev.ts; }
     if (state.history.length < 50000) { state.history.push(ev); }
-    if (state.map) { state.map.handle(ev); } else { countStats(ev); }
+    if (state.map) { state.map.handle(ev); }
+    countStats(ev);
     log(ev);
     scheduleRender();
   }
 
-  // Without WebGL the map is absent: keep the same counters here.
+  // The footer counts come from the events themselves, whichever view is showing.
   function countStats(ev) {
     var d = ev.data || {}, st = state.stats;
     if (ev.type === "finding.detected") { st.findings += 1; }
@@ -159,31 +162,63 @@
     (lines || []).forEach(function (t) { var p = document.createElement("p"); p.textContent = t; box.appendChild(p); });
   }
 
-  function setDashboard(on) {
-    document.body.classList.toggle("dash", on);
-    $("view-toggle").setAttribute("aria-pressed", on ? "true" : "false");
-    text($("view-toggle"), on ? "System map" : "Plain dashboard");
-    if (!on && !state.map) { startMap(); }
+  function webgl() {
+    try { var c = document.createElement("canvas"); return !!(window.WebGLRenderingContext && (c.getContext("webgl2") || c.getContext("webgl"))); }
+    catch (e) { return false; }
   }
 
-  function startMap() {
-    if (!window.SiftMap || !window.SiftMap.available()) {
-      $("webgl-note").classList.remove("hidden");
-      setDashboard(true);
-      $("view-toggle").disabled = true;
-      return;
+  // three.js and the 3D view load only when the 3D view is chosen: the 2D view and the table stay light.
+  var scriptsLoaded = {};
+  function loadScripts(names) {
+    return names.reduce(function (p, name) {
+      return p.then(function () {
+        if (scriptsLoaded[name]) { return scriptsLoaded[name]; }
+        scriptsLoaded[name] = new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = "/static/" + (name.indexOf("three") === 0 ? "vendor/" : "") + name;
+          s.onload = resolve; s.onerror = function () { reject(new Error("could not load " + name)); };
+          document.body.appendChild(s);
+        });
+        return scriptsLoaded[name];
+      });
+    }, Promise.resolve());
+  }
+
+  function remember(view) { try { window.localStorage.setItem(VIEW_KEY, view); } catch (e) { /* private window: fine */ } }
+  function remembered() { try { return window.localStorage.getItem(VIEW_KEY); } catch (e) { return null; } }
+
+  function setView(view) {
+    if (view === "3d" && !webgl()) { view = "2d"; $("webgl-note").classList.remove("hidden"); }
+    state.view = view;
+    remember(view);
+    ["3d", "2d", "table"].forEach(function (v) { $("view-" + v).setAttribute("aria-pressed", v === view ? "true" : "false"); });
+    document.body.classList.toggle("dash", view === "table");
+    if (state.map) { state.map.dispose(); state.map = null; }
+    if (view !== "table") { startMap(view); }
+  }
+
+  function startMap(view) {
+    var create;
+    if (view === "2d") {
+      create = Promise.resolve(function (el) { return window.SiftMap2D.create(el); });
+    } else {
+      text($("city-alt"), "Loading the 3D view.");
+      create = loadScripts(THREE_SCRIPTS.concat(["realm.js"])).then(function () {
+        if (!window.SiftRealm || !window.SiftRealm.available()) { throw new Error("no WebGL"); }
+        return function (el) { return window.SiftRealm.create(el); };
+      });
     }
-    state.map = window.SiftMap.create($("city-canvas"), {
-      onStats: function (s) {
-        var st = state.stats;
-        st.findings = s.findings; st.llmCalls = s.llmCalls; st.llmFailed = s.llmFailed; st.tokensIn = s.tokensIn;
-        st.tokensOut = s.tokensOut; st.vmJobs = s.vmJobs; st.scanners = s.scanners;
-        scheduleRender();
-      }
+    create.then(function (make) {
+      if (state.view !== view || state.map) { return; } // the user switched again meanwhile
+      state.map = make($("city-canvas"));
+      state.map.onSelect(showInfo);
+      var map = state.map;
+      state.history.forEach(function (ev) { map.handle(ev); }); // a view opened mid-run catches up
+      text($("city-alt"), map.describe());
+    }).catch(function () {
+      $("webgl-note").classList.remove("hidden");
+      if (state.view === "3d") { setView("2d"); }
     });
-    state.map.onSelect(showInfo);
-    var map = state.map;
-    state.history.forEach(function (ev) { map.handle(ev); }); // a map opened mid-run catches up
   }
 
   function resetStats() {
@@ -203,7 +238,7 @@
     $("run-select").value = id;
     getJSON("/api/run/" + encodeURIComponent(id) + "/report").then(function (report) {
       state.report = report;
-      if (!document.body.classList.contains("dash")) { startMap(); }
+      if (state.view !== "table") { startMap(state.view); }
       var src = new EventSource("/api/stream/" + encodeURIComponent(id));
       state.source = src;
       var finished = false;
@@ -254,10 +289,11 @@
     getJSON("/api/config").then(function (cfg) {
       state.config = cfg;
       var small = window.innerWidth < 720;
-      var wantDash = cfg.ci || small || !(window.SiftMap && window.SiftMap.available());
-      document.body.classList.toggle("dash", wantDash);
-      $("view-toggle").setAttribute("aria-pressed", wantDash ? "true" : "false");
-      text($("view-toggle"), wantDash ? "System map" : "Plain dashboard");
+      var pick = remembered();
+      var view = cfg.ci ? "table" : (pick === "3d" || pick === "2d" || pick === "table") ? pick : (small || !webgl()) ? "2d" : "3d";
+      state.view = view;
+      ["3d", "2d", "table"].forEach(function (v) { $("view-" + v).setAttribute("aria-pressed", v === view ? "true" : "false"); });
+      document.body.classList.toggle("dash", view === "table");
       return getJSON("/api/runs");
     }).then(function (data) {
       state.runs = data.runs || [];
@@ -268,13 +304,15 @@
       });
       if (state.runs.length) { loadRun(state.runs[0].id); } else {
         text($("dash-summary"), "No runs yet. Start `sift scan` or `sift fix` in a project - this page picks it up live.");
-        if (!document.body.classList.contains("dash")) { startMap(); }
+        if (state.view !== "table") { startMap(state.view); }
       }
       setInterval(poll, POLL_MS);
       setInterval(function () { if (state.started && !state.ended) { text($("stat-time"), elapsed()); } }, 1000);
     }).catch(function () { text($("dash-summary"), "Could not reach the CodeSift UI server."); });
 
-    $("view-toggle").addEventListener("click", function () { setDashboard(!document.body.classList.contains("dash")); });
+    ["3d", "2d", "table"].forEach(function (v) {
+      $("view-" + v).addEventListener("click", function () { if (state.view !== v || (!state.map && v !== "table")) { setView(v); } });
+    });
     $("follow").addEventListener("click", function () {
       state.pinned = false;
       if (state.runs[0]) { loadRun(state.runs[0].id); }

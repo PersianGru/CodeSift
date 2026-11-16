@@ -30,8 +30,8 @@ MAX_BODY = 16 * 1024
 SSE_MAX_S = 6 * 3600
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; "
-        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self'; "
+        "connect-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -45,24 +45,35 @@ STATIC: dict[str, tuple[str, str]] = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/static/app.css": ("app.css", "text/css; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    "/static/map.js": ("map.js", "text/javascript; charset=utf-8"),
+    "/static/realm.js": ("realm.js", "text/javascript; charset=utf-8"),
+    "/static/world.js": ("world.js", "text/javascript; charset=utf-8"),
+    "/static/map2d.js": ("map2d.js", "text/javascript; charset=utf-8"),
     "/static/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),
     "/static/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
 }
-_THREE_ADDONS = (
-    "CopyShader",
-    "LuminosityHighPassShader",
-    "EffectComposer",
-    "RenderPass",
-    "ShaderPass",
-    "UnrealBloomPass",
-    "RoomEnvironment",
-)
+_THREE_ADDONS = ("GLTFLoader", "SkeletonUtils")
 for _name in _THREE_ADDONS:
     STATIC[f"/static/vendor/three-{_name}.js"] = (
         f"vendor/three-{_name}.js",
         "text/javascript; charset=utf-8",
     )
+# KayKit models (CC0, Kay Lousberg) for the fantasy 3D view, packed by scripts/pack_kaykit.py
+KAYKIT = (
+    "anims",
+    "props",
+    "knight",
+    "barbarian",
+    "mage",
+    "ranger",
+    "rogue",
+    "rogue_hooded",
+    "skeleton_warrior",
+    "skeleton_mage",
+    "skeleton_rogue",
+    "skeleton_minion",
+)
+for _name in KAYKIT:
+    STATIC[f"/static/vendor/kaykit-{_name}.glb"] = (f"vendor/kaykit-{_name}.glb", "model/gltf-binary")
 _API = re.compile(r"^/api/(run|stream|patch)/([A-Za-z0-9._~-]{1,170})(?:/([A-Za-z0-9._-]{1,40}))?$")
 
 

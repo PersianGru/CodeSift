@@ -234,7 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_validate(sub)
     p = sub.add_parser(
         "ui",
-        help="local web UI: a live 3D map of the run + a plain dashboard (127.0.0.1 only, token-protected)",
+        help="local web UI: fantasy 3D realm, light 2D map or table of the run (127.0.0.1, token)",
         description="Serves a local web UI on 127.0.0.1 with a one-time token URL. No external requests. "
         "Review decisions are recorded in the run folder; patches are never applied.",
     )
@@ -243,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument("--demo", action="store_true", help="a synthetic run: no scan, no VM, no model")
     p.add_argument("--port", type=_positive_int, metavar="N", help="port (default: random)")
     p.add_argument("--open", action="store_true", help="open the browser")
-    p.add_argument("--ci", action="store_true", help="default to the plain dashboard")
+    p.add_argument("--ci", action="store_true", help="default to the plain table")
 
     p = sub.add_parser(
         "top",

@@ -136,7 +136,7 @@ patch that does any of the following:
 | `sift scan [PATH]` | detect → scanners → normalize/dedupe → baseline → LLM triage → report |
 | `sift validate [PATH] [--patch FILE \| --branch REF] [--finding IDS] [--json]` | prove a change on a copy, in the sandbox |
 | `sift fix [PATH] [--finding IDS] [--min-severity L] [--max-findings N] [--backend B] [--poc none\|project] [--review-patch] [--dry-run] [--json] [--budget-tokens N] [--budget-minutes N]` | AI fixers + deterministic gates; output is a patch |
-| `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI: live 3D system map of scans and fixes + plain dashboard |
+| `sift ui [--run DIR \| --demo] [--port N] [--open] [--ci]` | local web UI of scans and fixes: fantasy 3D realm, light 2D map or plain table |
 | `sift top [--once] [--ascii]` | live terminal view of the newest scan or fix (game-style HUD; keys: q, ←/→, f, p) |
 | `sift vm setup \| doctor \| status \| reset \| image pull\|build \| admin-script` | sandbox VM management |
 | `sift report --last` | re-print the latest summary |
@@ -272,7 +272,8 @@ Run `sift doctor`; every failing check prints a fix. Common cases:
 | [ruff](https://github.com/astral-sh/ruff), [bandit](https://github.com/PyCQA/bandit) | Python security lint | MIT / Apache-2.0 |
 | [zizmor](https://github.com/zizmorcore/zizmor) | GitHub Actions workflow security | MIT |
 | pip-audit, composer audit, govulncheck (opt-in) | extra dependency checks | Apache-2.0 / MIT / BSD-3-Clause |
-| [three.js](https://github.com/mrdoob/three.js) r128 + bloom / environment add-ons (vendored) | the `sift ui` 3D system map | MIT |
+| [three.js](https://github.com/mrdoob/three.js) r128 + GLTFLoader / SkeletonUtils add-ons (vendored) | the `sift ui` 3D realm | MIT |
+| [KayKit](https://kaylousberg.itch.io) Adventurers, Skeletons, Animations, Dungeon (selected models, vendored) | the `sift ui` 3D realm's characters and props | CC0 |
 | OpenSSH (system) | transport to the sandbox VM | BSD |
 
 Any OpenAI-compatible LLM gateway works for triage and the gateway fixer. CodeSift itself is Python
@@ -285,4 +286,4 @@ security problems as described in [SECURITY.md](SECURITY.md).
 
 ## Licence
 
-[MIT](LICENSE). The vendored opengrep rules and three.js keep their own licences.
+[MIT](LICENSE). The vendored opengrep rules, three.js and the KayKit models (CC0) keep their own licences.

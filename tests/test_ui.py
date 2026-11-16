@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -214,7 +215,8 @@ def test_demo_stream_and_replay(server: UIServer, paths: Paths) -> None:
         srv.shutdown()
 
 
-_URL = re.compile(r"(?:https?:)?//[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# an absolute URL, or a scheme-relative one inside a string ("//host.tld"); not a regex like /x//i.test
+_URL = re.compile(r"(?:https?:|[\"'`(])//[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def _code_lines(text: str) -> str:
@@ -229,7 +231,9 @@ def _code_lines(text: str) -> str:
 
 
 def test_no_external_urls_in_served_files() -> None:
-    for route, (name, _ctype) in STATIC.items():
+    for route, (name, ctype) in STATIC.items():
+        if not ctype.startswith("text/"):
+            continue  # binary models: checked by test_kaykit_models_are_what_the_realm_uses
         text = _code_lines(static_bytes(name).decode("utf-8", "replace"))
         found = {u for u in _URL.findall(text) if "www.w3.org" not in u}  # XML namespace ids, not requests
         assert not found, (route, sorted(found)[:5])
@@ -237,8 +241,10 @@ def test_no_external_urls_in_served_files() -> None:
 
 def test_vendor_hashes_match_third_party_record() -> None:
     record = (STATIC_DIR / "vendor" / "THIRD_PARTY.md").read_text(encoding="utf-8")
-    rows = dict(re.findall(r"^\| `([A-Za-z0-9.-]+\.js)` \|.*`([0-9a-f]{64})` \|$", record, re.MULTILINE))
-    shipped = {p.name for p in (STATIC_DIR / "vendor").glob("*.js")}
+    rows = dict(
+        re.findall(r"^\| `([A-Za-z0-9._-]+\.(?:js|glb))` \|.*`([0-9a-f]{64})` \|$", record, re.MULTILINE)
+    )
+    shipped = {p.name for p in (STATIC_DIR / "vendor").iterdir() if p.suffix in (".js", ".glb")}
     assert "three.min.js" in rows and set(rows) == shipped, (sorted(rows), sorted(shipped))
     for name, digest in rows.items():
         assert hashlib.sha256((STATIC_DIR / "vendor" / name).read_bytes()).hexdigest() == digest, name
@@ -251,12 +257,12 @@ def test_no_inline_script_or_style() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)
     assert "<style" not in html and " style=" not in html and "onclick" not in html.lower()
-    for js in ("app.js", "map.js", "dashboard.js"):
+    for js in ("app.js", "world.js", "map2d.js", "realm.js", "dashboard.js"):
         assert "innerHTML" not in (STATIC_DIR / js).read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-@pytest.mark.parametrize("name", ["app.js", "map.js", "dashboard.js"])
+@pytest.mark.parametrize("name", ["app.js", "world.js", "map2d.js", "realm.js", "dashboard.js"])
 def test_js_syntax(name: str) -> None:
     node = shutil.which("node")
     assert node
@@ -264,3 +270,34 @@ def test_js_syntax(name: str) -> None:
         [node, "--check", str(STATIC_DIR / name)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def _glb_json(name: str) -> dict[str, Any]:
+    data = (STATIC_DIR / "vendor" / name).read_bytes()
+    assert data[:4] == b"glTF"
+    size = int.from_bytes(data[12:16], "little")
+    assert data[16:20] == b"JSON"
+    doc = json.loads(data[20 : 20 + size])
+    assert isinstance(doc, dict)
+    return doc
+
+
+def test_kaykit_models_are_what_the_realm_uses() -> None:
+    realm = (STATIC_DIR / "realm.js").read_text(encoding="utf-8")
+    clips = {a["name"] for a in _glb_json("kaykit-anims.glb")["animations"]}
+    props = {n["name"] for n in _glb_json("kaykit-props.glb")["nodes"] if "children" in n and "mesh" not in n}
+    used_clips = set(re.findall(r'play\("([A-Za-z0-9_]+)"', realm))
+    used_clips |= set(
+        re.findall(r'"((?:Melee|Ranged|Skeletons)_[A-Za-z0-9_]+|Lockpicking|Interact|Use_Item)"', realm)
+    )
+    assert used_clips and used_clips <= clips, sorted(used_clips - clips)
+    used_props = set(re.findall(r'prop\("([A-Za-z0-9_]+)"', realm))
+    used_props |= set(re.findall(r'(?<![A-Za-z])[rl]: "([A-Za-z0-9_]+)"', realm))
+    assert used_props and used_props <= props, sorted(used_props - props)
+    models = set(
+        re.findall(
+            r'"((?:skeleton_)?(?:knight|barbarian|mage|ranger|rogue|rogue_hooded|warrior|minion))"', realm
+        )
+    )
+    for m in models | {"knight", "rogue_hooded", "skeleton_mage"}:
+        assert _glb_json(f"kaykit-{m}.glb")["skins"], m  # rigged, so the clips can drive it

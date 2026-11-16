@@ -16,7 +16,11 @@
     </label>
     <div class="controls" role="group" aria-label="View controls">
       <button id="follow" type="button" title="Show the newest run and follow new ones">Follow live</button>
-      <button id="view-toggle" type="button" aria-pressed="false">Plain dashboard</button>
+      <span class="seg" role="group" aria-label="View">
+        <button id="view-3d" type="button" aria-pressed="false" title="Fantasy 3D view (needs WebGL)">3D</button>
+        <button id="view-2d" type="button" aria-pressed="false" title="Light 2D map: no WebGL, little memory">2D</button>
+        <button id="view-table" type="button" aria-pressed="false" title="Plain findings table">Table</button>
+      </span>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
       <label>Speed
         <select id="speed" aria-label="Animation speed">
@@ -33,7 +37,7 @@
     <section id="city-view" aria-label="Live system map">
       <div id="city-canvas" class="canvas-wrap" role="img" aria-describedby="city-alt"></div>
       <p id="city-alt" class="sr-only" aria-live="polite">Loading the system map.</p>
-      <p id="webgl-note" class="note hidden">3D view unavailable here - showing the plain dashboard.</p>
+      <p id="webgl-note" class="note hidden">3D view unavailable here (no WebGL) - showing the 2D map.</p>
 
       <aside class="panel legend" aria-labelledby="legend-h">
         <h2 id="legend-h">Findings</h2>
@@ -106,16 +110,9 @@
     <span>Time <strong id="stat-time">-</strong></span>
   </footer>
 
-  <script src="/static/vendor/three.min.js"></script>
-  <script src="/static/vendor/three-CopyShader.js"></script>
-  <script src="/static/vendor/three-LuminosityHighPassShader.js"></script>
-  <script src="/static/vendor/three-EffectComposer.js"></script>
-  <script src="/static/vendor/three-RenderPass.js"></script>
-  <script src="/static/vendor/three-ShaderPass.js"></script>
-  <script src="/static/vendor/three-UnrealBloomPass.js"></script>
-  <script src="/static/vendor/three-RoomEnvironment.js"></script>
   <script src="/static/dashboard.js"></script>
-  <script src="/static/map.js"></script>
+  <script src="/static/world.js"></script>
+  <script src="/static/map2d.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

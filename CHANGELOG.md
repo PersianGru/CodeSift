@@ -9,12 +9,15 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
   btop): scanners as the party, findings as monsters, the LLM gateway as the oracle tower, the sandbox
   VM as the dungeon, and a battle log. Built only from the run's events; `--once` prints one frame,
   `--ascii` suits terminals without Unicode.
+- `sift ui` has three views: **3D**, a fantasy realm (scanners are heroes who ride out to the wilds,
+  findings rise as skeletons, the LLM gateway is an oracle tower, the sandbox VM is a dungeon) with
+  animated KayKit characters (CC0); **2D**, a light canvas map without WebGL for low memory; and
+  **Table**. three.js and the models load only for the 3D view.
 
 ### Changed
-- `sift ui` shows a live 3D map of the real run instead of the "living city": this machine with the
-  run's scanners, the LLM gateway with your models, and the sandbox VM with its containers. Every
-  packet is a real event; nothing moves without one. Scans now appear too, and the page follows a
-  new run as soon as it starts.
+- `sift ui` shows the real run instead of the "living city": this machine with the run's scanners,
+  the LLM gateway with your models, and the sandbox VM with its jobs. Everything that moves is a
+  real event. Scans now appear too, and the page follows a new run as soon as it starts.
 - `sift scan` writes `events.jsonl`: scanners starting and reporting, each finding, each LLM call
   (model, tokens, time). `sift validate` / `sift fix` also record each LLM call and VM command.
   Metadata only: never a prompt, an answer, a command or output. New `CODESIFT_RUNS` override.
