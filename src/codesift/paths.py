@@ -10,7 +10,7 @@ Windows deliberately avoids %LOCALAPPDATA% / %APPDATA%: packaged (MSIX) apps, su
 desktop apps that host a terminal, silently redirect writes there into a private per-app folder, so
 an install made from one app would be invisible to every other terminal (ADR-0002).
 
-Overrides: CODESIFT_HOME (data + runs + shim) and CODESIFT_CONFIG (config dir).
+Overrides: CODESIFT_HOME (data + runs + shim), CODESIFT_CONFIG (config dir) and CODESIFT_RUNS (runs).
 """
 
 from __future__ import annotations
@@ -123,6 +123,9 @@ def get_paths(env: Mapping[str, str] | None = None, platform: str | None = None)
     override_config = env.get("CODESIFT_CONFIG")
     if override_config:
         config = Path(override_config)
+    override_runs = env.get("CODESIFT_RUNS")
+    if override_runs:
+        runs = Path(override_runs)
 
     skill = home / ".claude" / "skills" / COMMAND
     return Paths(data=data, config=config, runs=runs, bin=bin_dir, skill=skill)

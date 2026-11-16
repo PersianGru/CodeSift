@@ -23,7 +23,7 @@ disappear if the app were reset.
 - **Linux/macOS**: XDG — `$XDG_DATA_HOME/codesift`, `$XDG_CONFIG_HOME/codesift`,
   `$XDG_CACHE_HOME/codesift/runs`, shim in `~/.local/bin`. macOS uses the same layout rather than
   `~/Library/...`, to keep one code path and one set of docs for the two Unix platforms.
-- `CODESIFT_HOME` and `CODESIFT_CONFIG` override (used by tests and portable setups).
+- `CODESIFT_HOME`, `CODESIFT_CONFIG` and `CODESIFT_RUNS` override (used by tests and portable setups).
 - The Claude skill goes to `~/.claude/skills/sift/`.
 - Credentials are a separate `bifrost.env` (mode 600 / user-only ACL), not part of `config.toml`, so
   the config can be shared or printed safely.

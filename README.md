@@ -188,7 +188,7 @@ Config files are all owner-only: Windows ACL, or mode 600 elsewhere.
 | `vm_known_hosts` | the pinned VM host key |
 
 Environment variables of the same names override the files. Settings from 0.1.0 are still read and
-are migrated by `sift setup --llm`. `CODESIFT_HOME` and `CODESIFT_CONFIG` override the folders
+are migrated by `sift setup --llm`. `CODESIFT_HOME`, `CODESIFT_CONFIG` and `CODESIFT_RUNS` override the folders
 ([ADR-0002](docs/decisions/ADR-0002-user-level-locations.md)).
 
 ### Project config: `.codesift.toml` (optional, committed)

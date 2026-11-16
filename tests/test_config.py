@@ -228,3 +228,5 @@ def test_paths_overrides() -> None:
     assert p.data == Path("/sc")
     assert p.runs == Path("/sc/runs")
     assert p.config == Path("/scc")
+    p3 = get_paths({"HOME": "/h", "CODESIFT_HOME": "/sc", "CODESIFT_RUNS": "/r"}, platform="linux")
+    assert p3.runs == Path("/r") and p3.data == Path("/sc") and p3.bin == Path("/sc/bin")

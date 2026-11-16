@@ -36,6 +36,11 @@ def fake_secret() -> Callable[[str], str]:
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
 
+# The real install (scanner binaries), read before any test overrides CODESIFT_HOME. Tests that run
+# the installed scanners take only `data` and `bin` from it; runs and config stay in tmp_path.
+INSTALLED_PATHS = get_paths()
+
+
 class NetworkBlocked(RuntimeError):
     pass
 
@@ -67,6 +72,15 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
     monkeypatch.setattr(socket, "create_connection", create_connection)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_codesift_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Child processes (git hooks, the CLI) inherit the environment: point them away from the real
+    ~/.codesift so a test never reads the user's settings or leaves runs there."""
+    monkeypatch.setenv("CODESIFT_HOME", str(tmp_path / "env-home"))
+    monkeypatch.setenv("CODESIFT_CONFIG", str(tmp_path / "env-config"))
+    monkeypatch.setenv("CODESIFT_RUNS", str(tmp_path / "env-runs"))
 
 
 @pytest.fixture

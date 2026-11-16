@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from codesift import hook
+from conftest import INSTALLED_PATHS
 from test_integration import _installed
 
 GIT_ENV = {
@@ -91,7 +92,11 @@ def _remote(tmp_path: Path, repo: Path) -> Path:
 
 
 @pytest.mark.skipif(not _installed(), reason="CodeSift tools not installed")
-def test_hook_blocks_new_high_and_allows_clean_push(tmp_path: Path, repo: Path) -> None:
+def test_hook_blocks_new_high_and_allows_clean_push(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The hook's `sift scan` needs the installed scanners; its runs and config stay in tmp_path.
+    monkeypatch.setenv("CODESIFT_HOME", str(INSTALLED_PATHS.data))
     _remote(tmp_path, repo)
     (repo / "README.md").write_text("# demo\n", encoding="utf-8")
     (repo / "util.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")

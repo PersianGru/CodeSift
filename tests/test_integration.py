@@ -19,6 +19,7 @@ from codesift.lockfile import LockError, active_lock_path, load_lock
 from codesift.paths import Paths, get_paths
 from codesift.scan import ScanOptions, scan
 from codesift.tools import ToolError, resolve_tool
+from conftest import INSTALLED_PATHS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -67,7 +68,7 @@ def _files_containing(base: Path, needle: str) -> list[str]:
 
 @pytest.fixture
 def real_paths(tmp_path: Path) -> Paths:
-    base = get_paths()
+    base = INSTALLED_PATHS
     cfg = tmp_path / "cfg"
     cfg.mkdir()
     return Paths(data=base.data, config=cfg, runs=tmp_path / "runs", bin=base.bin, skill=tmp_path / "skill")

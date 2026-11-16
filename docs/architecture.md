@@ -20,7 +20,7 @@ secret shapes) before it is written anywhere or sent to the LLM.
 | Module | Purpose |
 |---|---|
 | `cli.py` | argparse front end, exit codes |
-| `paths.py` | user-level locations per OS, `CODESIFT_HOME` / `CODESIFT_CONFIG` |
+| `paths.py` | user-level locations per OS, `CODESIFT_HOME` / `CODESIFT_CONFIG` / `CODESIFT_RUNS` |
 | `config.py` | `config.toml`, `gateway.env` (+ 0.1.0 fallback), `.codesift.toml` (incl. `[validate]`, `[ui.districts]`) |
 | `envfile.py` | safe KEY=VALUE parser (no expansion) |
 | `redact.py` | masking |

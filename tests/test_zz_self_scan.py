@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from codesift.paths import Paths, get_paths
+from codesift.paths import Paths
 from codesift.scan import ScanOptions, scan
+from conftest import INSTALLED_PATHS
 from test_integration import _installed
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.skipif(not _installed(), reason="CodeSift tools not installed")
 def test_codesift_scans_itself_clean(tmp_path: Path) -> None:
-    base = get_paths()
+    base = INSTALLED_PATHS
     paths = Paths(data=base.data, config=tmp_path, runs=tmp_path / "runs", bin=base.bin, skill=tmp_path)
     outcome = scan(ScanOptions(path=str(ROOT), no_llm=True, offline=True), paths)
     errors = {r.name: r.reason for r in outcome.results if r.status == "error"}
