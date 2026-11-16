@@ -257,7 +257,8 @@
   }
 
   function label(r) {
-    return (r.live ? "● live · " : "") + r.project + " · " + (r.kind || "") + " " + r.mode + " · " + String(r.started).replace("T", " ").replace("Z", "");
+    var what = !r.mode || r.mode === r.kind ? (r.kind || r.mode || "") : (r.kind ? r.kind + " " : "") + r.mode; // "fix", not "fix fix"
+    return (r.live ? "● live · " : "") + r.project + " · " + what + " · " + String(r.started).replace("T", " ").replace("Z", "");
   }
 
   function fillRuns(runs) {
