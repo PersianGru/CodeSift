@@ -459,6 +459,11 @@ def test_gate_script_executes_allow_and_deny(tmp_path: Path) -> None:
         stub.chmod(0o755)
     sh = shutil.which("sh")
     assert sh
+    # Git for Windows' bin\sh.exe is a launcher that puts /usr/bin first on PATH, so the real cat
+    # would shadow the stub; its usr\bin\sh.exe runs with the PATH given.
+    real_sh = Path(sh).parent.parent / "usr" / "bin" / "sh.exe"
+    if os.name == "nt" and Path(sh).parent.name.lower() == "bin" and real_sh.is_file():
+        sh = str(real_sh)
     env = dict(os.environ)
     env["PATH"] = str(stub_dir) + os.pathsep + env.get("PATH", "")
     cases = [(c, True) for c in GOOD[:4]] + [(c, False) for c in BAD[1:10]] + [(_run_argv(), True)]

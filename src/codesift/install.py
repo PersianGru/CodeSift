@@ -177,22 +177,95 @@ def _system32() -> Path:
     return Path(buf.value)
 
 
+def _windows_user_sid() -> str:
+    """String SID of the process token's user (OpenProcessToken + GetTokenInformation(TokenUser))."""
+    if sys.platform != "win32":
+        raise InstallError("Windows only")
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
+
+    token_query, token_user = 0x0008, 1
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), token_query, ctypes.byref(token)):
+        raise InstallError("cannot open the process token for the ACL")
+    try:
+        size = wintypes.DWORD(0)
+        advapi32.GetTokenInformation(token, token_user, None, 0, ctypes.byref(size))
+        buf = ctypes.create_string_buffer(size.value)
+        if not size.value or not advapi32.GetTokenInformation(
+            token, token_user, buf, size, ctypes.byref(size)
+        ):
+            raise InstallError("cannot read the current Windows account for the ACL")
+        sid_ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]  # TOKEN_USER.User.Sid
+        text = wintypes.LPWSTR()
+        if not advapi32.ConvertSidToStringSidW(sid_ptr, ctypes.byref(text)):
+            raise InstallError("cannot format the current Windows account SID")
+        try:
+            sid = text.value or ""
+        finally:
+            kernel32.LocalFree(text)
+    finally:
+        kernel32.CloseHandle(token)
+    if not sid.startswith("S-1-") or any(not (c.isdigit() or c in "S-") for c in sid):
+        raise InstallError("unexpected Windows account SID; ACL not changed")
+    return sid
+
+
+def _set_windows_dacl(path: Path, sddl: str) -> None:
+    """Replace the whole DACL (protected: nothing inherited). Unlike icacls /inheritance:r, this also
+    drops explicit entries a new file got from the token's default DACL (Administrators, SYSTEM) when
+    its folder had nothing to inherit."""
+    if sys.platform != "win32":
+        raise InstallError("Windows only")
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_void_p,
+    ]
+    advapi32.SetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
+
+    sd = ctypes.c_void_p()
+    if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(sd), None):
+        raise InstallError(f"cannot build the ACL (error {ctypes.get_last_error()})")
+    try:
+        dacl_info = 0x00000004 | 0x80000000  # DACL_SECURITY_INFORMATION | PROTECTED_DACL_...
+        if not advapi32.SetFileSecurityW(str(path), dacl_info, sd):
+            raise InstallError(f"cannot set the ACL on {path} (error {ctypes.get_last_error()})")
+    finally:
+        kernel32.LocalFree(sd)
+
+
 def restrict_to_user(path: Path) -> str:
-    """Owner-only access: chmod 600, or on Windows an ACL with only the current user."""
+    """Owner-only access: chmod 600, or on Windows a DACL with exactly one entry, the current user
+    (inherited by files created later when `path` is a folder)."""
     if sys.platform != "win32":
         path.chmod(0o600)
         return "mode 600"
     principal = _windows_account()
-    icacls = str(_system32() / "icacls.exe")
-    proc = subprocess.run(  # noqa: S603
-        [icacls, str(path), "/inheritance:r", "/grant:r", f"{principal}:(F)"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise InstallError(f"icacls failed ({proc.returncode}): {proc.stderr.strip()[:200]}")
+    inherit = "OICI" if path.is_dir() else ""
+    _set_windows_dacl(path, f"D:P(A;{inherit};FA;;;{_windows_user_sid()})")
     return f"ACL: only {principal}"
 
 
